@@ -10,14 +10,20 @@ yt-dlp de ce dépôt : tous les sites supportés par yt-dlp (~1800) fonctionnent
 > pas prises en charge — yt-dlp ne contourne pas les DRM. À utiliser uniquement avec des
 > contenus auxquels vous avez légalement accès.
 
-## Installation Windows en un double-clic (recommandé)
+## Installation en un double-clic (recommandé)
 
-Télécharger [`webapp/installer/Install-AniStream.bat`](installer/Install-AniStream.bat)
-et double-cliquer dessus : tout est installé automatiquement (application, Python
-autonome, ffmpeg), **sans droits administrateur**, avec une **icône sur le Bureau** qui
-lance AniStream d'un double-clic. Détails dans [`installer/README.md`](installer/README.md).
+- **Windows** : télécharger [`webapp/installer/Install-AniStream.bat`](installer/Install-AniStream.bat)
+  et double-cliquer dessus.
+- **macOS** : télécharger [`webapp/installer/Install-AniStream.command`](installer/Install-AniStream.command)
+  et double-cliquer dessus (premier lancement : clic droit → Ouvrir, à cause de Gatekeeper).
 
-## Installation manuelle (Linux, macOS, ou depuis les sources)
+Tout est installé automatiquement (application, Python autonome/venv, ffmpeg), **sans
+droits administrateur**, avec une **icône sur le Bureau** qui lance AniStream d'un
+double-clic. L'installateur propose aussi le **démarrage automatique avec la session**
+(serveur en arrière-plan, pour que les séries suivies se mettent à jour toutes seules).
+Détails et mise à jour/désinstallation dans [`installer/README.md`](installer/README.md).
+
+## Installation manuelle (Linux, ou depuis les sources)
 
 ```bash
 pip install -r webapp/requirements.txt
@@ -113,9 +119,11 @@ La progression s'affiche en direct (2 téléchargements en parallèle maximum).
 
 ### 5. Regarder (Accueil)
 
-L'accueil affiche un héros avec ta série la plus récente, une rangée « Continuer la
-lecture » et ta bibliothèque en carrousel. Chaque fiche série liste les épisodes par
-saison avec leur progression. Le lecteur intégré propose :
+L'accueil affiche un héros avec ta série la plus récente (bannière, note, genres,
+synopsis), une rangée « Continuer la lecture », ta liste « À voir » et ta bibliothèque
+en carrousel — avec **recherche locale, filtres par genre et statut de diffusion, et
+tri** (récents / A→Z / note). Chaque fiche série liste les épisodes par saison avec
+leur progression et un bouton « + Ma liste ». Le lecteur intégré propose :
 
 - contrôles personnalisés (lecture, ±10 s, volume, vitesse ×0.5 à ×2, Picture-in-Picture,
   plein écran) avec masquage automatique ;
@@ -123,7 +131,29 @@ saison avec leur progression. Le lecteur intégré propose :
   `M` muet, `F` plein écran ;
 - menu de sous-titres, badge de qualité (SD/HD/FHD/2K/**4K** selon la vidéo) ;
 - reprise là où tu t'étais arrêté, enchaînement automatique de l'épisode suivant avec
-  compte à rebours, marquage « vu ».
+  compte à rebours, marquage « vu » ;
+- **« Passer l'intro »** : définis une fois le début/fin du générique (menu ⏩ du
+  lecteur) et le bouton apparaît sur tous les épisodes de la série ;
+- **transcodage de secours** : si le navigateur ne sait pas lire un fichier (mkv
+  H.265…), le serveur le transcode à la volée via ffmpeg — la lecture marche toujours ;
+- **sous-titres IA** (optionnel) : menu CC → « Générer par IA (Whisper) » crée des
+  sous-titres pour un épisode qui n'en a pas. Activation :
+  `pip install faster-whisper` (modèle réglable via `ANISTREAM_WHISPER_MODEL`).
+
+### 6. Suivre, notifier, reprendre
+
+- Les téléchargements sont enregistrés dans une base SQLite : un téléchargement coupé
+  par l'arrêt du PC **reprend automatiquement au démarrage suivant**, et l'onglet
+  Téléchargements garde un **historique**.
+- Une **notification système** (Windows/macOS/Linux) apparaît quand une série suivie a
+  récupéré de nouveaux épisodes.
+
+### 7. Statistiques et stockage (onglet Stats)
+
+Tuiles (séries, épisodes, vus, temps de visionnage estimé, espace disque,
+téléchargements) et tableau de l'espace par série, avec **suppression groupée des
+épisodes déjà vus** (par série ou globale) — les épisodes purgés ne sont pas
+retéléchargés par les suivis grâce à l'archive yt-dlp.
 
 Les fichiers sont rangés dans `webapp/media/<Série>/<Saison XX>/…` — le dossier peut
 aussi être alimenté à la main avec des vidéos existantes, elles apparaîtront dans la
@@ -138,7 +168,8 @@ bibliothèque au prochain rechargement.
 | `ANISTREAM_PORT`  | `8000`         | Port                                    |
 | `ANISTREAM_LANGS` | `fr,en`        | Langues de sous-titres à récupérer      |
 | `ANISTREAM_CHECK_HOURS` | `6`      | Intervalle de vérification des séries suivies |
-| `ANISTREAM_DATA`  | `webapp/`      | Dossier des données persistantes (`watches.json`) |
+| `ANISTREAM_DATA`  | `webapp/`      | Dossier des données persistantes (`watches.json`, `anistream.db`) |
+| `ANISTREAM_WHISPER_MODEL` | `small` | Modèle Whisper pour les sous-titres IA (`tiny`…`large-v3`) |
 
 Exemple pour stocker la bibliothèque dans tes Vidéos :
 
