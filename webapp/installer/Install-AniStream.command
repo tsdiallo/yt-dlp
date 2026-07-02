@@ -130,6 +130,43 @@ echo "Termine."
 UNINSTALL
 chmod +x "$DEST/Desinstaller.command"
 
+# --- demarrage automatique (optionnel) ----------------------------------------
+LAUNCH_AGENT="$HOME/Library/LaunchAgents/local.anistream.plist"
+read -r -p "  Verifier les series suivies au demarrage du Mac ? (o/N) " auto
+if [ "$auto" = "o" ] || [ "$auto" = "O" ]; then
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cat > "$LAUNCH_AGENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>local.anistream</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$DEST/venv/bin/python3</string>
+        <string>$DEST/app/webapp/app.py</string>
+    </array>
+    <key>WorkingDirectory</key><string>$DEST/app</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$DEST/ffmpeg:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>ANISTREAM_MEDIA</key><string>$HOME/Movies/AniStream</string>
+        <key>ANISTREAM_DATA</key><string>$DEST/data</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>$DEST/server.log</string>
+    <key>StandardErrorPath</key><string>$DEST/server.log</string>
+</dict>
+</plist>
+PLIST
+    launchctl unload "$LAUNCH_AGENT" 2>/dev/null || true
+    launchctl load "$LAUNCH_AGENT"
+    echo "  Le serveur AniStream demarrera en arriere-plan avec le Mac."
+else
+    launchctl unload "$LAUNCH_AGENT" 2>/dev/null || true
+    rm -f "$LAUNCH_AGENT"
+fi
+
 echo ""
 echo "${green}${bold}  ========================================="
 echo "   Installation terminee !"

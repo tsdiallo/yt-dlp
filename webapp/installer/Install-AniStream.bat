@@ -88,6 +88,7 @@ try {
 Write-Host '  [5/5] Creation du lanceur et du raccourci Bureau...'
 
 $launcher = @'
+param([switch]$ServerOnly)
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:PATH = (Join-Path $root 'ffmpeg') + ';' + $env:PATH
@@ -113,14 +114,16 @@ if (-not (Test-AniPort)) {
     }
 }
 
-$edge = @(
-    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if ($edge) {
-    Start-Process -FilePath $edge -ArgumentList '--app=http://127.0.0.1:8000'
-} else {
-    Start-Process 'http://127.0.0.1:8000'
+if (-not $ServerOnly) {
+    $edge = @(
+        (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($edge) {
+        Start-Process -FilePath $edge -ArgumentList '--app=http://127.0.0.1:8000'
+    } else {
+        Start-Process 'http://127.0.0.1:8000'
+    }
 }
 '@
 Set-Content -Path (Join-Path $Dest 'launcher.ps1') -Value $launcher -Encoding ASCII
@@ -136,6 +139,7 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='py
 echo Suppression des raccourcis...
 del "%USERPROFILE%\Desktop\AniStream.lnk" 2>nul
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\AniStream.lnk" 2>nul
+del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\AniStream (serveur).lnk" 2>nul
 echo Suppression des fichiers (votre bibliotheque dans Videos\AniStream est conservee)...
 cd /d "%TEMP%"
 rmdir /s /q "%LOCALAPPDATA%\AniStream"
@@ -157,6 +161,23 @@ foreach ($lnkPath in @(
     if (Test-Path $icon) { $sc.IconLocation = $icon }
     $sc.Description = 'AniStream - streaming local'
     $sc.Save()
+}
+
+$serverVbs = 'CreateObject("Wscript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File ""' + (Join-Path $Dest 'launcher.ps1') + '"" -ServerOnly", 0, False'
+Set-Content -Path (Join-Path $Dest 'AniStreamServer.vbs') -Value $serverVbs -Encoding ASCII
+
+$startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'AniStream (serveur).lnk'
+$auto = Read-Host '  Verifier les series suivies au demarrage de Windows ? (o/N)'
+if ($auto -eq 'o' -or $auto -eq 'O') {
+    $sc = $ws.CreateShortcut($startupLnk)
+    $sc.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
+    $sc.Arguments = '"' + (Join-Path $Dest 'AniStreamServer.vbs') + '"'
+    if (Test-Path $icon) { $sc.IconLocation = $icon }
+    $sc.Description = 'Serveur AniStream (arriere-plan)'
+    $sc.Save()
+    Write-Host '  Le serveur AniStream demarrera en arriere-plan avec Windows.'
+} elseif (Test-Path $startupLnk) {
+    Remove-Item $startupLnk -Force
 }
 
 Remove-Item $Tmp -Recurse -Force
