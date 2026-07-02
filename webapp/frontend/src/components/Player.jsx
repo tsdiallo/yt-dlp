@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
   postJSON,
+  track,
   streamUrl,
   fmtTime,
   qualityLabel,
@@ -58,6 +59,8 @@ export default function Player({ path, library, onLibraryChange }) {
     setDuration(0)
     setCountdown(null)
     setIntroSkipped(false)
+    if (series) track('play', { series: series.name })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
   const inTc = tcOffset !== null

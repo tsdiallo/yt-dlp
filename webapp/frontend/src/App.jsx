@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from './api.js'
+import { api, track } from './api.js'
 import TopBar from './components/TopBar.jsx'
 import Home from './components/Home.jsx'
 import SeriesDetail from './components/SeriesDetail.jsx'
@@ -41,6 +41,10 @@ export default function App() {
     refreshLibrary()
     return () => window.removeEventListener('hashchange', onHash)
   }, [refreshLibrary])
+
+  useEffect(() => {
+    track('page', { page: route.page })
+  }, [route.page])
 
   useEffect(() => {
     const tick = async () => {
