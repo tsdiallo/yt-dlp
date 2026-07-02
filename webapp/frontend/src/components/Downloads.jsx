@@ -114,6 +114,61 @@ function Watches() {
   )
 }
 
+const HISTORY_STATUS = {
+  done: ['terminé', 'ok'],
+  error: ['échec', 'err'],
+  interrupted: ['interrompu', 'wait'],
+}
+
+function History() {
+  const [rows, setRows] = useState(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    api('/api/history?limit=30')
+      .then((r) => alive && setRows(r))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [open])
+
+  return (
+    <section className="watches">
+      <h2>
+        Historique{' '}
+        <button className="btn ghost small" onClick={() => setOpen(!open)}>
+          {open ? 'Masquer' : 'Afficher'}
+        </button>
+      </h2>
+      {open && rows === null && <div className="center-msg">Chargement…</div>}
+      {open &&
+        rows?.map((r) => {
+          const [label, cls] = HISTORY_STATUS[r.status] || [r.status, 'wait']
+          return (
+            <div key={r.id} className="job">
+              <div className="job-head">
+                <span className="job-title">
+                  {r.kind === 'watch' && <span className="pill">AUTO</span>}
+                  {r.title || r.url}
+                </span>
+                <span className={'job-status ' + cls}>{label}</span>
+              </div>
+              <div className="job-sub">
+                {r.series}
+                {r.season != null ? ' · Saison ' + r.season : ''}
+                {r.created_at ? ' · ' + new Date(r.created_at * 1000).toLocaleString('fr-FR') : ''}
+              </div>
+            </div>
+          )
+        })}
+      {open && rows?.length === 0 && <div className="center-msg">Aucun téléchargement passé.</div>}
+    </section>
+  )
+}
+
 export default function Downloads({ onLibraryChange }) {
   const [jobs, setJobs] = useState([])
   const [url, setUrl] = useState('')
@@ -254,6 +309,7 @@ export default function Downloads({ onLibraryChange }) {
       </p>
 
       <Watches />
+      <History />
     </main>
   )
 }

@@ -17,6 +17,7 @@ import mimetypes
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -44,6 +45,52 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 SUB_LANGS = [x.strip() for x in os.environ.get('ANISTREAM_LANGS', 'fr,en').split(',') if x.strip()]
 FFMPEG = shutil.which('ffmpeg')
 HAS_FFMPEG = bool(FFMPEG)
+
+# données persistantes (hors du dossier de l'application si ANISTREAM_DATA est
+# défini, pour survivre aux mises à jour — utilisé par les installateurs)
+DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_FILE = DATA_DIR / 'anistream.db'
+db_lock = threading.Lock()
+
+
+def db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+with db_lock, db() as _conn:
+    _conn.execute('''CREATE TABLE IF NOT EXISTS downloads (
+        id TEXT PRIMARY KEY,
+        kind TEXT,
+        url TEXT,
+        series TEXT,
+        season INTEGER,
+        title TEXT,
+        status TEXT,
+        error TEXT,
+        created_at REAL,
+        finished_at REAL
+    )''')
+
+
+def db_record(job):
+    with db_lock, db() as conn:
+        conn.execute(
+            '''INSERT INTO downloads (id, kind, url, series, season, title, status, error, created_at, finished_at)
+               VALUES (:id, :kind, :url, :series, :season, :title, :status, :error, :created_at, :finished_at)
+               ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title, status = excluded.status,
+                 error = excluded.error, finished_at = excluded.finished_at''',
+            {
+                'id': job['id'], 'kind': job.get('kind', 'manual'), 'url': job['url'],
+                'series': job['series'], 'season': job.get('season'),
+                'title': job.get('title'), 'status': job['status'],
+                'error': job.get('error'), 'created_at': job.get('created_at'),
+                'finished_at': job.get('finished_at'),
+            })
 
 VIDEO_EXTS = {'.mp4', '.mkv', '.webm', '.m4v', '.mov'}
 THUMB_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -288,6 +335,7 @@ def run_download(job_id, req: DownloadRequest):
     with download_slots:
         with jobs_lock:
             jobs[job_id]['status'] = 'downloading'
+            db_record(jobs[job_id])
         ensure_metadata(req.series)
         try:
             with yt_dlp.YoutubeDL(build_ydl_opts(req, job_id)) as ydl:
@@ -304,6 +352,9 @@ def run_download(job_id, req: DownloadRequest):
             with jobs_lock:
                 jobs[job_id]['status'] = 'error'
                 jobs[job_id]['error'] = str(e)
+        with jobs_lock:
+            jobs[job_id]['finished_at'] = time.time()
+            db_record(jobs[job_id])
 
 
 @app.post('/api/download')
@@ -333,10 +384,6 @@ def clear_downloads():
 # Suivi automatique de séries
 # ---------------------------------------------------------------------------
 
-# stocké hors du dossier de l'application si ANISTREAM_DATA est défini,
-# pour survivre aux mises à jour (utilisé par l'installateur Windows)
-DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 WATCHES_FILE = DATA_DIR / 'watches.json'
 CHECK_HOURS = float(os.environ.get('ANISTREAM_CHECK_HOURS', '6'))
 
@@ -372,9 +419,36 @@ def enqueue_download(req: DownloadRequest, kind='manual'):
             'speed': None,
             'eta': None,
             'error': None,
+            'created_at': time.time(),
+            'finished_at': None,
         }
+        db_record(jobs[job_id])
     threading.Thread(target=run_download, args=(job_id, req), daemon=True).start()
     return jobs[job_id]
+
+
+@app.get('/api/history')
+def download_history(limit: int = 50):
+    with db_lock, db() as conn:
+        rows = conn.execute(
+            'SELECT * FROM downloads ORDER BY created_at DESC LIMIT ?',
+            (max(1, min(limit, 200)),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def recover_interrupted_downloads():
+    """Relance au démarrage les téléchargements coupés par un arrêt du serveur."""
+    with db_lock, db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM downloads WHERE status IN ('queued', 'downloading', 'processing')"
+        ).fetchall()
+        conn.execute(
+            "UPDATE downloads SET status = 'interrupted' "
+            "WHERE status IN ('queued', 'downloading', 'processing')")
+    for r in rows:
+        enqueue_download(
+            DownloadRequest(url=r['url'], series=r['series'], season=r['season']),
+            kind=r['kind'] or 'manual')
 
 
 def check_watch(watch):
@@ -446,6 +520,7 @@ def watch_loop():
                 pass
 
 
+recover_interrupted_downloads()
 threading.Thread(target=watch_loop, daemon=True).start()
 
 
