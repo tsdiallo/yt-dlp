@@ -1,33 +1,32 @@
-# Installateur Windows
+# Installateurs AniStream
 
-## Installation en un double-clic
+Le **guide d'installation complet, pas à pas et illustré** (Windows et macOS, avec
+les réponses aux avertissements SmartScreen/Gatekeeper) est dans le
+[README principal d'AniStream](../README.md).
 
-1. Télécharger **`Install-AniStream.bat`** (bouton « Raw » puis Ctrl+S, ou via le zip du dépôt).
-2. Double-cliquer dessus. Le script télécharge et installe tout automatiquement dans
-   `%LOCALAPPDATA%\AniStream`, **sans droits administrateur** :
-   - l'application (dernière version de la branche `master` de ce dépôt) ;
-   - un Python 3.12 autonome (n'affecte pas un Python déjà installé) ;
-   - ffmpeg (fusion vidéo+audio, sous-titres) ;
-   - les dépendances (FastAPI, uvicorn).
-3. À la fin : une **icône AniStream sur le Bureau** et dans le menu Démarrer.
+## En bref
 
-Ensuite, un double-clic sur l'icône démarre le serveur en arrière-plan (s'il ne tourne
-pas déjà) et ouvre AniStream dans une fenêtre dédiée (Edge en mode application, sinon
-le navigateur par défaut). La bibliothèque est rangée dans `Vidéos\AniStream`.
+| Système | Fichier à télécharger puis double-cliquer |
+|---|---|
+| Windows 10/11 | [`Install-AniStream.bat`](Install-AniStream.bat) |
+| macOS | [`Install-AniStream.command`](Install-AniStream.command) *(premier lancement : clic droit → Ouvrir)* |
 
-## Mise à jour
+Les deux installateurs :
 
-Relancer `Install-AniStream.bat` : l'application est remplacée par la dernière version.
-La bibliothèque (`Vidéos\AniStream`) et les séries suivies (`%LOCALAPPDATA%\AniStream\data`)
-sont conservées.
+- installent tout automatiquement dans le dossier utilisateur, **sans droits
+  administrateur** : application, Python autonome/venv isolé, ffmpeg, dépendances ;
+- créent une **icône sur le Bureau** (et menu Démarrer / `~/Applications`) qui lance
+  AniStream d'un double-clic ;
+- proposent le **démarrage automatique** avec la session (serveur en arrière-plan
+  pour les séries suivies) ;
+- installent un **désinstalleur** (`Desinstaller.bat` / `Desinstaller.command`) qui
+  conserve la bibliothèque vidéo.
 
-## Désinstallation
+**Mise à jour** : relancer le même installateur — bibliothèque, suivis et base de
+données sont conservés (`data/` et le dossier vidéos ne sont pas touchés).
 
-Double-cliquer sur `Désinstaller.bat` dans `%LOCALAPPDATA%\AniStream`. La bibliothèque
-(`Vidéos\AniStream`) est conservée.
+## Contenu du dossier
 
-## Si Windows SmartScreen s'affiche
-
-Le script n'est pas signé numériquement : cliquer sur « Informations complémentaires »
-puis « Exécuter quand même ». Le contenu du script est lisible en l'ouvrant avec un
-éditeur de texte.
+- `Install-AniStream.bat` — installateur Windows (batch + PowerShell, un seul fichier)
+- `Install-AniStream.command` — installateur macOS (bash)
+- `anistream.ico` / `anistream.icns` — icônes Windows / macOS

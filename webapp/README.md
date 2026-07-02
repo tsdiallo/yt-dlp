@@ -1,211 +1,329 @@
-# AniStream — streaming local propulsé par yt-dlp
+# AniStream — ton Netflix personnel, sur ton ordinateur
 
-Serveur web personnel, pensé pour tourner sur ton PC, qui permet de se constituer une
-bibliothèque d'animés/séries en local et de la regarder dans le navigateur, façon
-Netflix : page d'accueil avec héros et rangées, fiches séries par saison, et lecteur
-vidéo intégré (jusqu'au 4K selon la source). Le téléchargement s'appuie sur les sources
-yt-dlp de ce dépôt : tous les sites supportés par yt-dlp (~1800) fonctionnent.
+AniStream est une application qui s'installe sur **ton PC Windows ou ton Mac** et qui
+te permet de :
 
-> **Limites** : les plateformes protégées par DRM (Crunchyroll, Netflix, ADN…) ne sont
-> pas prises en charge — yt-dlp ne contourne pas les DRM. À utiliser uniquement avec des
-> contenus auxquels vous avez légalement accès.
+- 🔍 **chercher** un animé ou une série sur plusieurs moteurs à la fois ;
+- ⬇️ **télécharger** des épisodes ou des saisons entières (grâce à yt-dlp, qui
+  connaît ~1800 sites) ;
+- 📺 **regarder** le tout dans une belle interface façon Netflix, avec affiches
+  officielles, reprise de lecture, bouton « Passer l'intro », etc. ;
+- 🔔 **suivre** tes séries : les nouveaux épisodes se téléchargent tout seuls et tu
+  reçois une notification.
 
-## Installation en un double-clic (recommandé)
+Tout reste **sur ton ordinateur** : pas de compte, pas d'abonnement, pas de cloud.
 
-- **Windows** : télécharger [`webapp/installer/Install-AniStream.bat`](installer/Install-AniStream.bat)
-  et double-cliquer dessus.
-- **macOS** : télécharger [`webapp/installer/Install-AniStream.command`](installer/Install-AniStream.command)
-  et double-cliquer dessus (premier lancement : clic droit → Ouvrir, à cause de Gatekeeper).
+> ⚠️ **À savoir avant de commencer**
+> - Les plateformes protégées par DRM (Crunchyroll, Netflix, ADN, Disney+…) ne
+>   fonctionnent **pas** : yt-dlp ne contourne pas ces protections.
+> - À utiliser uniquement avec des contenus auxquels tu as légalement accès.
 
-Tout est installé automatiquement (application, Python autonome/venv, ffmpeg), **sans
-droits administrateur**, avec une **icône sur le Bureau** qui lance AniStream d'un
-double-clic. L'installateur propose aussi le **démarrage automatique avec la session**
-(serveur en arrière-plan, pour que les séries suivies se mettent à jour toutes seules).
-Détails et mise à jour/désinstallation dans [`installer/README.md`](installer/README.md).
+---
 
-## Installation manuelle (Linux, ou depuis les sources)
+## 🪟 Installation sur Windows (10 ou 11)
+
+**Durée : 5 à 10 minutes, tout est automatique. Aucun droit administrateur requis.**
+
+### Étape 1 — Télécharger l'installateur
+
+1. Ouvre cette page :
+   [Install-AniStream.bat](https://github.com/tsdiallo/yt-dlp/blob/master/webapp/installer/Install-AniStream.bat)
+2. Clique sur le bouton **⬇ (Download raw file)** en haut à droite du fichier.
+3. Le fichier `Install-AniStream.bat` arrive dans ton dossier **Téléchargements**.
+
+### Étape 2 — Lancer l'installation
+
+1. **Double-clique** sur `Install-AniStream.bat`.
+2. Windows va probablement afficher un écran bleu « **Windows a protégé votre
+   ordinateur** » (SmartScreen). C'est normal : le script n'est pas signé
+   numériquement, comme la plupart des petits programmes gratuits.
+   👉 Clique sur « **Informations complémentaires** », puis « **Exécuter quand
+   même** ».
+   (Si tu veux vérifier ce que fait le script, tu peux l'ouvrir avec le Bloc-notes :
+   tout est lisible.)
+3. Une fenêtre noire s'ouvre et affiche la progression :
+   - `[1/5]` téléchargement de l'application ;
+   - `[2/5]` téléchargement de Python (une version **autonome**, qui ne touche pas à
+     ton ordinateur ni à un éventuel Python déjà installé) ;
+   - `[3/5]` installation des composants ;
+   - `[4/5]` téléchargement de ffmpeg (~100 Mo — c'est lui qui assemble les vidéos et
+     les sous-titres) ;
+   - `[5/5]` création du raccourci.
+4. Deux questions te sont posées à la fin :
+   - « **Verifier les series suivies au demarrage de Windows ?** » → réponds `o` si
+     tu veux que tes séries suivies se mettent à jour toutes seules dès que tu
+     allumes le PC (recommandé), sinon appuie juste sur Entrée.
+   - « **Lancer AniStream maintenant ?** » → appuie sur Entrée pour ouvrir l'appli.
+
+### Étape 3 — C'est installé !
+
+- Une **icône AniStream** (triangle rouge) est apparue **sur ton Bureau** et dans le
+  menu Démarrer.
+- Un **double-clic** dessus ouvre AniStream dans une fenêtre dédiée.
+- Tes vidéos seront rangées dans **`Vidéos\AniStream`**.
+
+> 💡 **Mettre à jour** : relance simplement `Install-AniStream.bat`. Ta bibliothèque
+> et tes séries suivies sont conservées.
+>
+> 🗑 **Désinstaller** : ouvre le dossier `%LOCALAPPDATA%\AniStream` (copie-colle ça
+> dans la barre d'adresse de l'Explorateur) et double-clique sur `Desinstaller.bat`.
+> Tes vidéos dans `Vidéos\AniStream` ne sont pas supprimées.
+
+---
+
+## 🍎 Installation sur Mac
+
+**Durée : 5 à 10 minutes. Aucun droit administrateur requis.**
+
+### Étape 0 — Vérifier que Python est présent
+
+AniStream a besoin de Python 3. La plupart des Mac récents l'ont déjà. Pour vérifier :
+ouvre l'application **Terminal** (Cmd+Espace, tape « Terminal », Entrée) et tape :
+
+```
+python3 --version
+```
+
+- Si tu vois un numéro de version (ex. `Python 3.11.6`) → c'est bon, passe à
+  l'étape 1. (macOS peut te proposer d'installer les « outils de développement » —
+  accepte, ça installe Python.)
+- Sinon → télécharge Python sur [python.org/downloads](https://www.python.org/downloads/)
+  (gros bouton jaune), installe-le comme n'importe quelle app, puis reviens ici.
+
+### Étape 1 — Télécharger l'installateur
+
+1. Ouvre cette page :
+   [Install-AniStream.command](https://github.com/tsdiallo/yt-dlp/blob/master/webapp/installer/Install-AniStream.command)
+2. Clique sur le bouton **⬇ (Download raw file)**.
+3. Le fichier arrive dans ton dossier **Téléchargements**.
+
+### Étape 2 — Lancer l'installation
+
+1. Dans le Finder, **clic droit** (ou Ctrl+clic) sur `Install-AniStream.command`,
+   puis **Ouvrir**.
+2. macOS affiche « impossible de vérifier le développeur » (Gatekeeper). C'est
+   normal pour un script téléchargé : clique sur **Ouvrir** dans la boîte de
+   dialogue. *(Un double-clic normal ne suffit pas la première fois — il faut passer
+   par clic droit → Ouvrir.)*
+   - Sur macOS 15 (Sequoia) et plus récent, si le bouton « Ouvrir » n'apparaît pas :
+     va dans **Réglages Système → Confidentialité et sécurité**, descends en bas, et
+     clique sur « **Ouvrir quand même** » à côté du message concernant le fichier.
+3. Le Terminal s'ouvre et déroule les 5 étapes (application, Python, composants,
+   ffmpeg, création de l'app).
+4. Réponds aux deux questions de fin (démarrage automatique, lancement immédiat),
+   comme sur Windows.
+
+### Étape 3 — C'est installé !
+
+- **AniStream.app** est dans le dossier `~/Applications`, avec un **raccourci sur le
+  Bureau**. Double-clique dessus pour ouvrir AniStream dans ton navigateur.
+- Tes vidéos seront rangées dans **`Vidéos/AniStream`** (dossier « Movies »).
+
+> 💡 **Mettre à jour** : relance `Install-AniStream.command` (clic droit → Ouvrir).
+>
+> 🗑 **Désinstaller** : dans le Finder, menu **Aller → Aller au dossier…**, colle
+> `~/Library/Application Support/AniStream`, puis double-clique sur
+> `Desinstaller.command`. Tes vidéos sont conservées.
+
+---
+
+## 📖 Guide d'utilisation
+
+Au premier lancement, ta bibliothèque est vide. Voici le parcours type.
+
+### 1. Chercher un animé — onglet **Recherche**
+
+1. Clique sur **Recherche** dans la barre du haut.
+2. Tape le nom de ce que tu cherches, par exemple `one piece vostfr`.
+3. Choisis le type :
+   - **Vidéos / épisodes** : cherche des vidéos sur YouTube, Google Vidéo, Yahoo
+     (qui indexent des milliers de sites), BiliBili et NicoNico ;
+   - **Playlists YouTube** : cherche des playlists — idéal pour récupérer une
+     **saison entière d'un coup**.
+4. Les résultats s'affichent groupés par moteur, avec **le site où la vidéo est
+   hébergée** indiqué sous chaque titre. Le bouton **Ouvrir** permet de vérifier la
+   vidéo dans un nouvel onglet avant de la télécharger.
+
+### 2. Télécharger
+
+Sur un résultat de recherche, clique **Télécharger** :
+
+- **Série (dossier)** : le nom sous lequel l'épisode sera rangé (ex. `One Piece`).
+  C'est ce nom qui sert aussi à retrouver l'affiche et le synopsis officiels.
+- **Saison** : optionnel, pour ranger en `Saison 01`, `Saison 02`…
+- Clique **Lancer**. La progression est visible dans l'onglet **Téléchargements**.
+
+Tu peux aussi **coller directement une URL** (épisode, playlist, chaîne) dans
+l'onglet Téléchargements — pratique pour un site que la recherche ne couvre pas.
+
+> 💡 Les épisodes d'une playlist sont automatiquement numérotés (`01 - …`, `02 - …`)
+> et l'affiche/le synopsis de la série sont récupérés tout seuls depuis AniList.
+
+### 3. Suivre une série (téléchargement automatique) — bouton **★ Suivre**
+
+Sur un résultat de type **playlist**, clique **★ Suivre** au lieu de Lancer :
+
+- tous les épisodes disponibles sont téléchargés immédiatement ;
+- ensuite, AniStream **revérifie toutes les 6 heures** et télécharge les nouveaux
+  épisodes dès leur sortie ;
+- tu reçois une **notification** (en bas à droite sur Windows, en haut à droite sur
+  Mac) quand de nouveaux épisodes sont arrivés.
+
+Tes suivis se gèrent dans l'onglet **Téléchargements → Séries suivies** (vérifier
+maintenant, arrêter de suivre). Un épisode que tu supprimes ne sera **pas**
+retéléchargé.
+
+### 4. Regarder — onglet **Accueil**
+
+- L'accueil affiche ta série la plus récente en grand, une rangée **Continuer la
+  lecture**, ta liste **À voir** et ta bibliothèque.
+- La **barre de recherche et les filtres** (genre, statut, tri par note…) aident à
+  s'y retrouver quand la bibliothèque grandit.
+- Clique sur une série → la fiche montre l'affiche, la note, le synopsis et les
+  épisodes par saison. Clique sur un épisode → la lecture démarre.
+
+**Dans le lecteur :**
+
+| Action | Souris | Clavier |
+|---|---|---|
+| Lecture / pause | clic sur la vidéo | `Espace` ou `K` |
+| Reculer / avancer de 10 s | boutons ↺10 / 10↻ | `←` / `→` |
+| Volume | molette sur l'icône 🔊 | `↑` / `↓` |
+| Couper le son | 🔊 | `M` |
+| Plein écran | ⛶ | `F` ou double-clic |
+| Épisode suivant | ⏭ | — |
+| Sous-titres | CC | — |
+| Vitesse ×0.5 à ×2 | 1× | — |
+
+- La lecture **reprend là où tu t'étais arrêté**, et l'épisode suivant s'enchaîne
+  automatiquement (avec un compte à rebours annulable).
+- Un badge indique la qualité réelle (HD, FHD, **4K**…).
+- Si une vidéo refuse de se lire (format exotique), AniStream la **convertit
+  automatiquement en direct** — tu n'as rien à faire, un badge « transcodage »
+  apparaît simplement.
+
+### 5. Passer l'intro 🎵
+
+Pour ne plus jamais te retaper le générique :
+
+1. Pendant un épisode, mets-toi au **début** du générique, ouvre le menu **⏩** et
+   clique « Début d'intro = … ».
+2. Avance à la **fin** du générique, menu **⏩** → « Fin d'intro = … ».
+3. C'est tout : sur **tous les épisodes de la série**, un bouton **« Passer
+   l'intro »** apparaîtra au bon moment.
+
+### 6. Sous-titres
+
+- Les sous-titres disponibles (français, anglais) sont téléchargés automatiquement
+  avec chaque épisode → menu **CC** du lecteur.
+- Pas de sous-titres pour un épisode ? Le menu **CC → ✨ Générer par IA (Whisper)**
+  peut en créer automatiquement (fonction optionnelle, voir la section avancée).
+
+### 7. Faire le ménage — onglet **Stats**
+
+L'onglet **Stats** montre combien d'épisodes tu as vus, le temps de visionnage et
+**l'espace disque occupé par chaque série**. Les boutons **🗑 vus** suppriment d'un
+clic les épisodes que tu as déjà regardés (série par série, ou tout d'un coup) —
+et ils ne seront pas retéléchargés par tes suivis.
+
+---
+
+## ❓ Problèmes courants
+
+**« Windows a protégé votre ordinateur » / « développeur non identifié »**
+→ Normal (script non signé) : voir les étapes d'installation ci-dessus. Le contenu
+des scripts est lisible avec un éditeur de texte.
+
+**La recherche ne trouve pas ma série**
+→ Essaie d'autres mots-clés (`vostfr`, `episode 1`, titre japonais…). Si tu connais
+un site qui a la série, va sur la page de l'épisode dans ton navigateur, copie
+l'URL et colle-la dans l'onglet **Téléchargements** : yt-dlp connaît ~1800 sites.
+
+**Un téléchargement échoue**
+→ Certains sites bloquent ou retirent des vidéos. Réessaie, ou trouve une autre
+source via la recherche. Les sites à DRM (Crunchyroll, Netflix, ADN…) ne
+fonctionneront jamais — c'est une limite volontaire de yt-dlp.
+
+**La vidéo ne se lit pas / écran noir**
+→ AniStream bascule normalement tout seul en mode « transcodage ». Si ça ne suffit
+pas, vérifie que ffmpeg s'est bien installé (relance l'installateur).
+
+**L'affiche/le synopsis ne correspondent pas à ma série**
+→ Sur la fiche série, bouton **↻ Métadonnées** : corrige le titre recherché
+(ex. `Kimetsu no Yaiba` au lieu de `Demon Slayer S2`).
+
+**Mon PC s'est éteint pendant un téléchargement**
+→ Au prochain lancement, les téléchargements interrompus **reprennent tout seuls**.
+
+**AniStream ne s'ouvre pas**
+→ Attends quelques secondes après le double-clic (le serveur démarre), puis ouvre
+manuellement `http://127.0.0.1:8000` dans ton navigateur. Toujours rien ? Regarde
+le fichier `server.log` dans le dossier d'installation et ouvre un ticket avec son
+contenu.
+
+---
+
+## 🔧 Pour les utilisateurs avancés
+
+### Installation manuelle (Linux ou depuis les sources)
 
 ```bash
+git clone https://github.com/tsdiallo/yt-dlp && cd yt-dlp
 pip install -r webapp/requirements.txt
+sudo apt install ffmpeg          # fortement recommandé
+python3 webapp/app.py            # puis http://127.0.0.1:8000
 ```
 
-`ffmpeg` est fortement recommandé (fusion vidéo+audio en mp4, conversion des sous-titres
-en VTT pour le lecteur, miniatures) :
+### Variables d'environnement
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `ANISTREAM_MEDIA` | `webapp/media` | Dossier de la bibliothèque |
+| `ANISTREAM_DATA`  | `webapp/` | Données persistantes (suivis, base SQLite) |
+| `ANISTREAM_HOST` / `ANISTREAM_PORT` | `127.0.0.1` / `8000` | Adresse d'écoute |
+| `ANISTREAM_LANGS` | `fr,en` | Langues de sous-titres à récupérer |
+| `ANISTREAM_CHECK_HOURS` | `6` | Intervalle de vérification des suivis |
+| `ANISTREAM_WHISPER_MODEL` | `small` | Modèle des sous-titres IA (`tiny`…`large-v3`) |
+| `ANISTREAM_POSTHOG_KEY` | *(vide = désactivé)* | Clé projet PostHog pour les statistiques d'usage |
+| `ANISTREAM_POSTHOG_HOST` | `https://eu.i.posthog.com` | Instance PostHog |
+
+### Sous-titres IA (Whisper)
 
 ```bash
-sudo apt install ffmpeg        # Debian/Ubuntu
-winget install ffmpeg          # Windows
-brew install ffmpeg            # macOS
+pip install faster-whisper
+# Windows (installateur) :
+#   %LOCALAPPDATA%\AniStream\python\python.exe -m pip install faster-whisper
+# macOS (installateur) :
+#   "$HOME/Library/Application Support/AniStream/venv/bin/pip" install faster-whisper
 ```
 
-## Lancement
+Puis redémarre AniStream. Le premier lancement télécharge le modèle (~500 Mo pour
+`small`). La génération se suit dans l'onglet Téléchargements (badge IA).
 
-Depuis la racine du dépôt :
+### Statistiques d'usage avec PostHog (opt-in, désactivé par défaut)
+
+AniStream peut envoyer des événements anonymes (téléchargements, lectures, pages
+vues…) vers **ton propre projet [PostHog](https://posthog.com)** — utile pour voir
+tes habitudes de visionnage sur de beaux dashboards. Rien n'est envoyé tant que la
+clé n'est pas configurée :
 
 ```bash
-python3 webapp/app.py
+ANISTREAM_POSTHOG_KEY=phc_xxx python3 webapp/app.py
+# instance US : ajouter ANISTREAM_POSTHOG_HOST=https://us.i.posthog.com
 ```
 
-Puis ouvrir <http://127.0.0.1:8000> dans ton navigateur. Tout reste sur ta machine :
-les fichiers sont enregistrés dans `webapp/media/` (modifiable, voir Configuration).
+Événements envoyés : `app_started`, `search`, `download_started/finished`,
+`watch_added/check`, `ui_page`, `ui_play`, `subtitle_generated`,
+`episodes_purged`. Identifiant : un ID aléatoire local (aucune donnée personnelle).
 
-## Utilisation
-
-### 1. Rechercher un animé ou une série (onglet Recherche)
-
-Tape un titre (par exemple `one piece vostfr`) et AniStream interroge en parallèle
-plusieurs moteurs de recherche vidéo :
-
-| Moteur       | Couverture                                                        |
-|--------------|-------------------------------------------------------------------|
-| YouTube      | vidéos et, en mode « Playlists », saisons/playlists entières      |
-| Google Vidéo | méta-moteur : trouve des vidéos hébergées sur de très nombreux sites |
-| Yahoo Vidéo  | méta-moteur, idem                                                 |
-| BiliBili     | beaucoup d'animés asiatiques                                      |
-| NicoNico     | idem                                                              |
-
-Les résultats indiquent automatiquement **sur quel site** la vidéo est disponible
-(domaine affiché sous le titre). Un clic sur **Télécharger** pré-remplit le nom de la
-série (dossier de la bibliothèque) et lance le téléchargement via yt-dlp depuis le site
-trouvé.
-
-Deux modes :
-
-- **Vidéos / épisodes** : cherche des vidéos individuelles sur tous les moteurs.
-- **Playlists YouTube** : cherche des playlists (pratique pour récupérer une saison
-  complète d'un coup — chaque épisode est numéroté automatiquement).
-
-> Note d'honnêteté : il n'existe pas de recherche universelle sur les ~1800 sites —
-> seuls les sites exposant un moteur de recherche sont interrogeables directement. Les
-> méta-moteurs (Google/Yahoo Vidéo) comblent l'essentiel du reste. Pour un site précis
-> non couvert, copie simplement l'URL de l'épisode ou de la playlist dans l'onglet
-> Téléchargements : yt-dlp saura presque toujours la télécharger.
-
-### 2. Suivre une série (téléchargement automatique)
-
-Deux façons :
-
-- bouton **★ Suivre** sur un résultat playlist de la Recherche ;
-- section **Séries suivies** de l'onglet Téléchargements (URL de playlist/chaîne + nom
-  de série).
-
-AniStream vérifie ensuite périodiquement (toutes les 6 h par défaut, réglable via
-`ANISTREAM_CHECK_HOURS`) et télécharge **uniquement les nouveaux épisodes**, grâce à
-l'archive yt-dlp (`.anistream/archive.txt` dans le dossier de la série). Un épisode
-supprimé de la bibliothèque n'est pas retéléchargé. La première vérification part
-immédiatement, et un bouton « Vérifier » permet de forcer un passage.
-
-### 3. Métadonnées AniList (affiches, synopsis, genres, note)
-
-À la première apparition d'une série (téléchargement ou suivi), AniStream interroge
-l'API publique [AniList](https://anilist.co) avec le nom de la série et enregistre
-localement : titre officiel, affiche, bannière, synopsis, genres, note et nombre
-d'épisodes (`.anistream/meta.json`, `cover.jpg`, `banner.jpg`). L'accueil et les fiches
-séries les utilisent automatiquement.
-
-Si la correspondance est mauvaise (nom de dossier trop vague), le bouton
-**↻ Métadonnées** d'une fiche série permet de relancer la recherche avec un autre titre.
-
-### 4. Télécharger par URL (onglet Téléchargements)
-
-Coller n'importe quelle URL supportée par yt-dlp :
-
-- une **vidéo individuelle** (YouTube ou autre) ;
-- une **playlist YouTube** ou une page de saison : tous les épisodes sont téléchargés
-  et numérotés (`01 - …`, `02 - …`) ;
-- indiquer le nom de la série et éventuellement le numéro de saison pour le rangement.
-
-La progression s'affiche en direct (2 téléchargements en parallèle maximum).
-
-### 5. Regarder (Accueil)
-
-L'accueil affiche un héros avec ta série la plus récente (bannière, note, genres,
-synopsis), une rangée « Continuer la lecture », ta liste « À voir » et ta bibliothèque
-en carrousel — avec **recherche locale, filtres par genre et statut de diffusion, et
-tri** (récents / A→Z / note). Chaque fiche série liste les épisodes par saison avec
-leur progression et un bouton « + Ma liste ». Le lecteur intégré propose :
-
-- contrôles personnalisés (lecture, ±10 s, volume, vitesse ×0.5 à ×2, Picture-in-Picture,
-  plein écran) avec masquage automatique ;
-- raccourcis clavier : `espace`/`K` lecture, `←`/`→` ou `J`/`L` ±10 s, `↑`/`↓` volume,
-  `M` muet, `F` plein écran ;
-- menu de sous-titres, badge de qualité (SD/HD/FHD/2K/**4K** selon la vidéo) ;
-- reprise là où tu t'étais arrêté, enchaînement automatique de l'épisode suivant avec
-  compte à rebours, marquage « vu » ;
-- **« Passer l'intro »** : définis une fois le début/fin du générique (menu ⏩ du
-  lecteur) et le bouton apparaît sur tous les épisodes de la série ;
-- **transcodage de secours** : si le navigateur ne sait pas lire un fichier (mkv
-  H.265…), le serveur le transcode à la volée via ffmpeg — la lecture marche toujours ;
-- **sous-titres IA** (optionnel) : menu CC → « Générer par IA (Whisper) » crée des
-  sous-titres pour un épisode qui n'en a pas. Activation :
-  `pip install faster-whisper` (modèle réglable via `ANISTREAM_WHISPER_MODEL`).
-
-### 6. Suivre, notifier, reprendre
-
-- Les téléchargements sont enregistrés dans une base SQLite : un téléchargement coupé
-  par l'arrêt du PC **reprend automatiquement au démarrage suivant**, et l'onglet
-  Téléchargements garde un **historique**.
-- Une **notification système** (Windows/macOS/Linux) apparaît quand une série suivie a
-  récupéré de nouveaux épisodes.
-
-### 7. Statistiques et stockage (onglet Stats)
-
-Tuiles (séries, épisodes, vus, temps de visionnage estimé, espace disque,
-téléchargements) et tableau de l'espace par série, avec **suppression groupée des
-épisodes déjà vus** (par série ou globale) — les épisodes purgés ne sont pas
-retéléchargés par les suivis grâce à l'archive yt-dlp.
-
-Les fichiers sont rangés dans `webapp/media/<Série>/<Saison XX>/…` — le dossier peut
-aussi être alimenté à la main avec des vidéos existantes, elles apparaîtront dans la
-bibliothèque au prochain rechargement.
-
-## Configuration (variables d'environnement)
-
-| Variable          | Défaut         | Rôle                                    |
-|-------------------|----------------|-----------------------------------------|
-| `ANISTREAM_MEDIA` | `webapp/media` | Dossier de la bibliothèque              |
-| `ANISTREAM_HOST`  | `127.0.0.1`    | Interface d'écoute                      |
-| `ANISTREAM_PORT`  | `8000`         | Port                                    |
-| `ANISTREAM_LANGS` | `fr,en`        | Langues de sous-titres à récupérer      |
-| `ANISTREAM_CHECK_HOURS` | `6`      | Intervalle de vérification des séries suivies |
-| `ANISTREAM_DATA`  | `webapp/`      | Dossier des données persistantes (`watches.json`, `anistream.db`) |
-| `ANISTREAM_WHISPER_MODEL` | `small` | Modèle Whisper pour les sous-titres IA (`tiny`…`large-v3`) |
-
-Exemple pour stocker la bibliothèque dans tes Vidéos :
-
-```bash
-ANISTREAM_MEDIA=~/Videos/Animes python3 webapp/app.py
-```
-
-> Le serveur n'a pas d'authentification : garde l'écoute sur `127.0.0.1` (défaut),
-> c'est-à-dire accessible uniquement depuis ton PC.
-
-## Développement du frontend
-
-Le frontend est une application React (Vite) dans `frontend/`. Un build est déjà commité
-dans `frontend/dist/`, donc **aucune installation Node n'est nécessaire pour utiliser
-AniStream**. Pour le modifier :
+### Développer le frontend
 
 ```bash
 cd webapp/frontend
 npm install
-npm run dev      # serveur de dev avec proxy vers l'API (lancer app.py à côté)
+npm run dev      # serveur de dev (proxy API vers app.py)
 npm run build    # régénère dist/ servi par FastAPI
 ```
 
-## Notes techniques
-
-- Backend FastAPI dans `app.py` :
-  - recherche : extracteurs `SearchInfoExtractor` de yt-dlp interrogés en parallèle
-    (extraction « flat », 30 s maximum) ; le mode playlists utilise la page de
-    résultats YouTube filtrée sur les playlists ;
-  - téléchargements : file yt-dlp avec hooks de progression ;
-  - bibliothèque : scan du dossier média (séries → saisons → épisodes, sous-titres et
-    miniatures associés) ;
-  - streaming HTTP avec support des requêtes `Range` (indispensable pour se déplacer
-    dans la vidéo).
-- Frontend React 19 + Vite dans `frontend/` (routeur par hash, lecteur vidéo custom,
-  états de lecture dans le localStorage), servi par FastAPI depuis `frontend/dist/`.
-- Les vidéos sont téléchargées en mp4/h264 en priorité pour la lecture native dans le
-  navigateur — jusqu'au 4K quand la source le propose ; le mkv est servi mais sa
-  lecture dépend des codecs du navigateur.
+Le build est commité dans `frontend/dist/`, donc les utilisateurs n'ont jamais
+besoin de Node.
