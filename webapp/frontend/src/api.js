@@ -43,6 +43,16 @@ export const clearPos = (path) => {
   localStorage.removeItem('anistream.pos.' + path)
 }
 
+// --- télémétrie (relayée au serveur ; no-op si PostHog n'est pas configuré)
+
+export const track = (event, properties) => {
+  fetch('/api/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, properties }),
+  }).catch(() => {})
+}
+
 // --- watchlist (« Ma liste »)
 
 export const getWatchlist = () =>

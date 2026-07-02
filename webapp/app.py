@@ -118,6 +118,78 @@ def sanitize_name(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip() or 'Sans titre'
 
 
+# ---------------------------------------------------------------------------
+# Statistiques d'usage PostHog (opt-in : rien n'est envoyé sans clé)
+# ---------------------------------------------------------------------------
+
+POSTHOG_KEY = os.environ.get('ANISTREAM_POSTHOG_KEY', '').strip()
+POSTHOG_HOST = os.environ.get('ANISTREAM_POSTHOG_HOST', 'https://eu.i.posthog.com').rstrip('/')
+
+
+def _device_id():
+    """Identifiant anonyme stable de cette installation (aucune donnée personnelle)."""
+    f = DATA_DIR / 'device_id'
+    try:
+        did = f.read_text().strip()
+        if did:
+            return did
+    except OSError:
+        pass
+    did = uuid.uuid4().hex
+    try:
+        f.write_text(did)
+    except OSError:
+        pass
+    return did
+
+
+DEVICE_ID = _device_id()
+
+
+def track(event, properties=None):
+    """Envoie un événement à PostHog en arrière-plan. No-op sans clé configurée."""
+    if not POSTHOG_KEY:
+        return
+    payload = {
+        'api_key': POSTHOG_KEY,
+        'event': event,
+        'distinct_id': DEVICE_ID,
+        'properties': {
+            '$lib': 'anistream',
+            'platform': sys.platform,
+            **(properties or {}),
+        },
+    }
+
+    def send():
+        try:
+            req = urllib.request.Request(
+                POSTHOG_HOST + '/capture/',
+                data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json'})
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception:
+            pass  # la télémétrie ne doit jamais gêner l'application
+
+    threading.Thread(target=send, daemon=True).start()
+
+
+class TrackRequest(BaseModel):
+    event: str
+    properties: dict | None = None
+
+
+@app.post('/api/track')
+def track_ui_event(req: TrackRequest):
+    """Relaie un événement du frontend (la clé PostHog reste côté serveur)."""
+    event = re.sub(r'[^a-z0-9_]', '', req.event.lower())[:40]
+    if event:
+        props = {k: v for k, v in (req.properties or {}).items()
+                 if isinstance(v, (str, int, float, bool)) and len(str(v)) <= 200}
+        track(f'ui_{event}', dict(list(props.items())[:10]))
+    return {'enabled': bool(POSTHOG_KEY)}
+
+
 def notify(title, message):
     """Notification système (toast Windows, bannière macOS, notify-send Linux)."""
     try:
@@ -374,6 +446,7 @@ def run_download(job_id, req: DownloadRequest):
             kind = jobs[job_id].get('kind', 'manual')
             db_record(jobs[job_id])
         ensure_metadata(req.series)
+        track('download_started', {'kind': kind, 'has_season': req.season is not None})
         before = archive_count(req.series) if kind == 'watch' else 0
         try:
             with yt_dlp.YoutubeDL(build_ydl_opts(req, job_id)) as ydl:
@@ -391,10 +464,16 @@ def run_download(job_id, req: DownloadRequest):
                 jobs[job_id]['status'] = 'error'
                 jobs[job_id]['error'] = str(e)
         with jobs_lock:
-            jobs[job_id]['finished_at'] = time.time()
-            db_record(jobs[job_id])
+            job = jobs[job_id]
+            job['finished_at'] = time.time()
+            db_record(job)
+            track('download_finished', {
+                'kind': kind, 'status': job['status'],
+                'duration_s': round(job['finished_at'] - (job.get('created_at') or job['finished_at'])),
+            })
         if kind == 'watch':
             new_count = archive_count(req.series) - before
+            track('watch_check', {'new_episodes': max(0, new_count)})
             if new_count > 0:
                 notify('AniStream',
                        f'{req.series} : {new_count} nouvel épisode téléchargé' if new_count == 1
@@ -527,6 +606,7 @@ def add_watch(req: WatchRequest):
             raise HTTPException(409, 'Cette série est déjà suivie avec cette URL')
         watches.append(watch)
         save_watches()
+    track('watch_added', {})
     check_watch(watch)  # première vérification immédiate
     return watch
 
@@ -564,6 +644,7 @@ def watch_loop():
                 pass
 
 
+track('app_started', {'ffmpeg': HAS_FFMPEG})
 recover_interrupted_downloads()
 threading.Thread(target=watch_loop, daemon=True).start()
 
@@ -657,6 +738,8 @@ def search(q: str, mode: str = 'videos', count: int = 8):
                 results.extend(fut.result())
             except Exception:
                 failed.append(futures[fut])
+        track('search', {'mode': mode, 'result_count': len(results),
+                         'failed_sources': len(failed)})
         return {'query': q, 'results': results, 'failed_sources': sorted(failed)}
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
@@ -754,6 +837,7 @@ def delete_batch(req: DeleteBatchRequest):
             deleted += 1
         except HTTPException:
             pass  # déjà supprimé ou chemin invalide : on continue
+    track('episodes_purged', {'deleted': deleted, 'freed_mb': round(freed / 1048576)})
     return {'deleted': deleted, 'freed': freed}
 
 
@@ -853,6 +937,7 @@ def run_subtitle_job(job_id, file, language):
     with jobs_lock:
         jobs[job_id]['finished_at'] = time.time()
         db_record(jobs[job_id])
+        track('subtitle_generated', {'status': jobs[job_id]['status']})
 
 
 class SubtitleRequest(BaseModel):
@@ -981,6 +1066,7 @@ def transcode(rel_path: str, t: float = 0):
     if t > 0:
         cmd += ['-ss', f'{t:.3f}']
     cmd += ['-i', str(file), *profile['args'], 'pipe:1']
+    track('transcode_used', {'ext': file.suffix.lstrip('.'), 'offset': round(t)})
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
     def gen():
