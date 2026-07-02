@@ -307,6 +307,7 @@ def library():
                 'season': f.parent.name if f.parent != sdir else None,
                 'subs': subs,
                 'thumb': thumb,
+                'mtime': f.stat().st_mtime,
             })
         if episodes:
             series_list.append({
@@ -383,15 +384,26 @@ def stream(rel_path: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Frontend statique
+# Frontend (build React dans frontend/dist)
 # ---------------------------------------------------------------------------
+
+FRONTEND_DIST = WEBAPP_DIR / 'frontend' / 'dist'
+
 
 @app.get('/')
 def index():
-    return FileResponse(WEBAPP_DIR / 'static' / 'index.html')
+    if not (FRONTEND_DIST / 'index.html').is_file():
+        raise HTTPException(500, "Frontend non construit : lancez `npm install && npm run build` dans webapp/frontend")
+    return FileResponse(FRONTEND_DIST / 'index.html')
 
 
-app.mount('/static', StaticFiles(directory=WEBAPP_DIR / 'static'), name='static')
+@app.get('/favicon.svg')
+def favicon():
+    return FileResponse(FRONTEND_DIST / 'favicon.svg')
+
+
+if (FRONTEND_DIST / 'assets').is_dir():
+    app.mount('/assets', StaticFiles(directory=FRONTEND_DIST / 'assets'), name='assets')
 
 
 if __name__ == '__main__':

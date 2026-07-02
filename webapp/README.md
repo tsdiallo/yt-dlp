@@ -2,8 +2,9 @@
 
 Serveur web personnel, pensé pour tourner sur ton PC, qui permet de se constituer une
 bibliothèque d'animés/séries en local et de la regarder dans le navigateur, façon
-Netflix. Le téléchargement s'appuie sur les sources yt-dlp de ce dépôt : tous les sites
-supportés par yt-dlp (~1800) fonctionnent.
+Netflix : page d'accueil avec héros et rangées, fiches séries par saison, et lecteur
+vidéo intégré (jusqu'au 4K selon la source). Le téléchargement s'appuie sur les sources
+yt-dlp de ce dépôt : tous les sites supportés par yt-dlp (~1800) fonctionnent.
 
 > **Limites** : les plateformes protégées par DRM (Crunchyroll, Netflix, ADN…) ne sont
 > pas prises en charge — yt-dlp ne contourne pas les DRM. À utiliser uniquement avec des
@@ -78,11 +79,19 @@ Coller n'importe quelle URL supportée par yt-dlp :
 
 La progression s'affiche en direct (2 téléchargements en parallèle maximum).
 
-### 3. Regarder (onglet Bibliothèque)
+### 3. Regarder (Accueil)
 
-Les séries apparaissent en grille ; clique pour voir les épisodes par saison, puis lire
-dans le lecteur intégré : sous-titres, reprise de lecture là où tu t'étais arrêté,
-enchaînement automatique de l'épisode suivant, marquage « vu », suppression d'épisode.
+L'accueil affiche un héros avec ta série la plus récente, une rangée « Continuer la
+lecture » et ta bibliothèque en carrousel. Chaque fiche série liste les épisodes par
+saison avec leur progression. Le lecteur intégré propose :
+
+- contrôles personnalisés (lecture, ±10 s, volume, vitesse ×0.5 à ×2, Picture-in-Picture,
+  plein écran) avec masquage automatique ;
+- raccourcis clavier : `espace`/`K` lecture, `←`/`→` ou `J`/`L` ±10 s, `↑`/`↓` volume,
+  `M` muet, `F` plein écran ;
+- menu de sous-titres, badge de qualité (SD/HD/FHD/2K/**4K** selon la vidéo) ;
+- reprise là où tu t'étais arrêté, enchaînement automatique de l'épisode suivant avec
+  compte à rebours, marquage « vu ».
 
 Les fichiers sont rangés dans `webapp/media/<Série>/<Saison XX>/…` — le dossier peut
 aussi être alimenté à la main avec des vidéos existantes, elles apparaîtront dans la
@@ -106,6 +115,19 @@ ANISTREAM_MEDIA=~/Videos/Animes python3 webapp/app.py
 > Le serveur n'a pas d'authentification : garde l'écoute sur `127.0.0.1` (défaut),
 > c'est-à-dire accessible uniquement depuis ton PC.
 
+## Développement du frontend
+
+Le frontend est une application React (Vite) dans `frontend/`. Un build est déjà commité
+dans `frontend/dist/`, donc **aucune installation Node n'est nécessaire pour utiliser
+AniStream**. Pour le modifier :
+
+```bash
+cd webapp/frontend
+npm install
+npm run dev      # serveur de dev avec proxy vers l'API (lancer app.py à côté)
+npm run build    # régénère dist/ servi par FastAPI
+```
+
 ## Notes techniques
 
 - Backend FastAPI dans `app.py` :
@@ -117,6 +139,8 @@ ANISTREAM_MEDIA=~/Videos/Animes python3 webapp/app.py
     miniatures associés) ;
   - streaming HTTP avec support des requêtes `Range` (indispensable pour se déplacer
     dans la vidéo).
-- Frontend sans dépendance dans `static/` (HTML/CSS/JS pur, routeur par hash).
+- Frontend React 19 + Vite dans `frontend/` (routeur par hash, lecteur vidéo custom,
+  états de lecture dans le localStorage), servi par FastAPI depuis `frontend/dist/`.
 - Les vidéos sont téléchargées en mp4/h264 en priorité pour la lecture native dans le
-  navigateur ; le mkv est servi mais sa lecture dépend des codecs du navigateur.
+  navigateur — jusqu'au 4K quand la source le propose ; le mkv est servi mais sa
+  lecture dépend des codecs du navigateur.
