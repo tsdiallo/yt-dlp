@@ -273,6 +273,7 @@ export default function Downloads({ onLibraryChange }) {
               <div className="job-head">
                 <span className="job-title">
                   {j.kind === 'watch' && <span className="pill">AUTO</span>}
+                  {j.kind === 'subtitle' && <span className="pill">IA</span>}
                   {j.title || j.url}
                 </span>
                 <span className={'job-status ' + cls}>{label}</span>

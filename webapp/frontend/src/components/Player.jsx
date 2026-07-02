@@ -438,33 +438,49 @@ export default function Player({ path, library, onLibraryChange }) {
               </a>
             )}
 
-            {ep.subs.length > 0 && (
-              <div className="menu-wrap">
-                <button
-                  className={'icon-btn' + (subIdx > 0 ? ' on' : '')}
-                  title="Sous-titres"
-                  onClick={() => setMenu(menu === 'subs' ? null : 'subs')}
-                >
-                  CC
-                </button>
-                {menu === 'subs' && (
-                  <div className="menu">
+            <div className="menu-wrap">
+              <button
+                className={'icon-btn' + (subIdx > 0 ? ' on' : '')}
+                title="Sous-titres"
+                onClick={() => setMenu(menu === 'subs' ? null : 'subs')}
+              >
+                CC
+              </button>
+              {menu === 'subs' && (
+                <div className="menu">
+                  {ep.subs.length > 0 && (
                     <button className={subIdx === 0 ? 'sel' : ''} onClick={() => setSubIdx(0)}>
                       Désactivés
                     </button>
-                    {ep.subs.map((s, i) => (
-                      <button
-                        key={s.path}
-                        className={subIdx === i + 1 ? 'sel' : ''}
-                        onClick={() => setSubIdx(i + 1)}
-                      >
-                        {s.lang}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                  {ep.subs.map((s, i) => (
+                    <button
+                      key={s.path}
+                      className={subIdx === i + 1 ? 'sel' : ''}
+                      onClick={() => setSubIdx(i + 1)}
+                    >
+                      {s.lang}
+                    </button>
+                  ))}
+                  <button
+                    onClick={async () => {
+                      setMenu(null)
+                      try {
+                        await postJSON('/api/subtitle', { path: ep.path })
+                        alert(
+                          'Génération lancée — suivez la progression dans Téléchargements. ' +
+                            'Les sous-titres apparaîtront ici une fois prêts.',
+                        )
+                      } catch (err) {
+                        alert(err.message)
+                      }
+                    }}
+                  >
+                    ✨ Générer par IA (Whisper)
+                  </button>
+                </div>
+              )}
+            </div>
 
             <div className="menu-wrap">
               <button

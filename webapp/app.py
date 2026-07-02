@@ -778,6 +778,98 @@ def stream(rel_path: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Sous-titres générés par IA (faster-whisper, dépendance optionnelle)
+# ---------------------------------------------------------------------------
+
+WHISPER_MODEL_NAME = os.environ.get('ANISTREAM_WHISPER_MODEL', 'small')
+_whisper_model = None
+_whisper_lock = threading.Lock()
+
+
+def get_whisper_model():
+    global _whisper_model
+    from faster_whisper import WhisperModel
+    with _whisper_lock:
+        if _whisper_model is None:
+            _whisper_model = WhisperModel(WHISPER_MODEL_NAME, device='auto', compute_type='auto')
+        return _whisper_model
+
+
+def _vtt_ts(t):
+    h, rem = divmod(max(0.0, t), 3600)
+    m, s = divmod(rem, 60)
+    return f'{int(h):02d}:{int(m):02d}:{s:06.3f}'
+
+
+def run_subtitle_job(job_id, file, language):
+    with jobs_lock:
+        jobs[job_id]['status'] = 'processing'
+        db_record(jobs[job_id])
+    try:
+        model = get_whisper_model()
+        try:
+            segments, info = model.transcribe(str(file), language=language, vad_filter=True)
+        except (IndexError, ValueError) as e:
+            raise RuntimeError(f'transcription impossible (fichier sans piste audio ?) : {e}')
+        duration = info.duration or 0
+        lines = ['WEBVTT', '']
+        for seg in segments:
+            lines += [f'{_vtt_ts(seg.start)} --> {_vtt_ts(seg.end)}', seg.text.strip(), '']
+            if duration:
+                with jobs_lock:
+                    jobs[job_id]['progress'] = round(min(99.0, seg.end / duration * 100), 1)
+        out = Path(str(file.with_suffix('')) + f'.{info.language}.vtt')
+        out.write_text('\n'.join(lines), encoding='utf-8')
+        with jobs_lock:
+            jobs[job_id]['status'] = 'done'
+            jobs[job_id]['progress'] = 100.0
+    except Exception as e:
+        with jobs_lock:
+            jobs[job_id]['status'] = 'error'
+            jobs[job_id]['error'] = str(e)
+    with jobs_lock:
+        jobs[job_id]['finished_at'] = time.time()
+        db_record(jobs[job_id])
+
+
+class SubtitleRequest(BaseModel):
+    path: str
+    language: str | None = None  # None = détection automatique
+
+
+@app.post('/api/subtitle')
+def generate_subtitle(req: SubtitleRequest):
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        raise HTTPException(
+            501,
+            "Sous-titres IA non installés. Installez-les avec : pip install faster-whisper "
+            '(puis redémarrez AniStream). Le premier lancement télécharge le modèle.')
+    file = safe_media_path(req.path)
+    job_id = uuid.uuid4().hex[:12]
+    with jobs_lock:
+        jobs[job_id] = {
+            'id': job_id,
+            'kind': 'subtitle',
+            'url': req.path,
+            'series': file.parent.name,
+            'season': None,
+            'title': f'Sous-titres IA : {file.stem}',
+            'status': 'queued',
+            'progress': 0.0,
+            'speed': None,
+            'eta': None,
+            'error': None,
+            'created_at': time.time(),
+            'finished_at': None,
+        }
+        db_record(jobs[job_id])
+    threading.Thread(target=run_subtitle_job, args=(job_id, file, req.language), daemon=True).start()
+    return jobs[job_id]
+
+
+# ---------------------------------------------------------------------------
 # Statistiques
 # ---------------------------------------------------------------------------
 
