@@ -6,6 +6,7 @@ import SeriesDetail from './components/SeriesDetail.jsx'
 import Player from './components/Player.jsx'
 import Search from './components/Search.jsx'
 import Downloads from './components/Downloads.jsx'
+import Stats from './components/Stats.jsx'
 
 function parseHash() {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''))
@@ -13,6 +14,7 @@ function parseHash() {
   if (h.startsWith('watch/')) return { page: 'watch', arg: h.slice(6) }
   if (h.startsWith('search')) return { page: 'search' }
   if (h.startsWith('downloads')) return { page: 'downloads' }
+  if (h.startsWith('stats')) return { page: 'stats' }
   return { page: 'home' }
 }
 
@@ -67,6 +69,7 @@ export default function App() {
       )}
       {route.page === 'search' && <Search library={library} />}
       {route.page === 'downloads' && <Downloads onLibraryChange={refreshLibrary} />}
+      {route.page === 'stats' && <Stats library={library} />}
     </>
   )
 }

@@ -69,6 +69,21 @@ export const fmtTime = (s) => {
 
 export const fmtSpeed = (b) => (b ? (b / 1048576).toFixed(1) + ' Mo/s' : '')
 
+export const fmtBytes = (b) => {
+  if (!b) return '0 o'
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To']
+  const i = Math.min(units.length - 1, Math.floor(Math.log2(b) / 10))
+  const v = b / 2 ** (10 * i)
+  return (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' ' + units[i]
+}
+
+export const fmtHours = (s) => {
+  if (!s) return '0 min'
+  const h = Math.floor(s / 3600)
+  const m = Math.round((s % 3600) / 60)
+  return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min`
+}
+
 export const qualityLabel = (w, h) => {
   if (!w || !h) return null
   const p = Math.min(w, h)

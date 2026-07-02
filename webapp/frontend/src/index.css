@@ -644,3 +644,44 @@ select:focus, input:focus { outline: none; border-color: var(--violet); }
   border: 1.5px solid rgba(255, 255, 255, .6);
   backdrop-filter: blur(4px);
 }
+
+/* ---------------------------------------------------------------- stats */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 34px;
+}
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.tile-label { color: var(--dim); font-size: 13px; }
+.tile-value { font-size: 30px; font-weight: 600; line-height: 1.25; margin-top: 2px; }
+.tile-sub { color: var(--dim); font-size: 12.5px; }
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.stats-table th {
+  text-align: left;
+  color: var(--dim);
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.stats-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.stats-table td a { text-decoration: none; font-weight: 600; }
+.stats-table td a:hover { color: var(--red); }
+.stats-table tr:hover td { background: var(--surface); }

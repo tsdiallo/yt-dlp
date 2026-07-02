@@ -26,6 +26,9 @@ export default function TopBar({ page, activeJobs }) {
           Téléchargements
           {activeJobs > 0 && <span className="badge">{activeJobs}</span>}
         </a>
+        <a href="#/stats" className={page === 'stats' ? 'active' : ''}>
+          Stats
+        </a>
       </nav>
     </header>
   )

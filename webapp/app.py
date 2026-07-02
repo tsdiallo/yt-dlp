@@ -778,6 +778,42 @@ def stream(rel_path: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Statistiques
+# ---------------------------------------------------------------------------
+
+@app.get('/api/stats')
+def stats():
+    per_series, total_size = [], 0
+    for sdir in sorted(MEDIA_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not sdir.is_dir():
+            continue
+        size = episodes = 0
+        for f in sdir.rglob('*'):
+            if f.is_file():
+                size += f.stat().st_size
+                if f.suffix.lower() in VIDEO_EXTS:
+                    episodes += 1
+        if episodes:
+            per_series.append({'name': sdir.name, 'size': size, 'episodes': episodes})
+            total_size += size
+    per_series.sort(key=lambda s: s['size'], reverse=True)
+    with db_lock, db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done, "
+            "SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS failed "
+            'FROM downloads').fetchone()
+    with watches_lock:
+        watch_count = len(watches)
+    return {
+        'series': per_series,
+        'total_size': total_size,
+        'downloads': {'total': row['total'], 'done': row['done'] or 0, 'failed': row['failed'] or 0},
+        'watch_count': watch_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Transcodage à la volée (secours quand le navigateur ne peut pas lire)
 # ---------------------------------------------------------------------------
 
