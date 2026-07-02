@@ -1,5 +1,13 @@
 import { useMemo, useState } from 'react'
-import { api, streamUrl, getSeen, getPos, getDur } from '../api.js'
+import { api, postJSON, streamUrl, getSeen, getPos, getDur } from '../api.js'
+
+const STATUS_FR = {
+  RELEASING: 'En cours de diffusion',
+  FINISHED: 'Terminé',
+  NOT_YET_RELEASED: 'À venir',
+  HIATUS: 'En pause',
+  CANCELLED: 'Annulé',
+}
 
 export default function SeriesDetail({ name, library, onLibraryChange }) {
   const series = library?.find((s) => s.name === name)
@@ -15,6 +23,25 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
   }, [series])
 
   const [seasonIdx, setSeasonIdx] = useState(0)
+  const [descOpen, setDescOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refreshMeta = async () => {
+    const query = prompt(
+      'Rechercher sur AniList (laisser tel quel ou corriger le titre) :',
+      series?.meta?.title || name,
+    )
+    if (query === null) return
+    setRefreshing(true)
+    try {
+      await postJSON('/api/series/' + encodeURIComponent(name) + '/metadata', { query })
+      onLibraryChange()
+    } catch (err) {
+      alert('Erreur : ' + err.message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   if (library === null) return <main className="page center-msg">Chargement…</main>
   if (!series) {
@@ -40,28 +67,53 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
     onLibraryChange()
   }
 
+  const meta = series.meta
+  const heroBg = meta?.banner || series.cover
+  const desc = meta?.description
+
   return (
     <main className="series">
       <div
         className="series-hero"
-        style={series.cover ? { backgroundImage: `url("${streamUrl(series.cover)}")` } : undefined}
+        style={heroBg ? { backgroundImage: `url("${streamUrl(heroBg)}")` } : undefined}
       >
         <div className="hero-fade" />
         <div className="hero-content">
-          <h1>{series.name}</h1>
-          <p>
-            {series.episodes.length} épisode{series.episodes.length > 1 ? 's' : ''}
+          <h1>{meta?.title || series.name}</h1>
+          <p className="hero-facts">
+            {meta?.score && <span className="score">★ {meta.score / 10}</span>}
+            {series.episodes.length}
+            {meta?.episodes ? `/${meta.episodes}` : ''} épisode
+            {series.episodes.length > 1 ? 's' : ''}
             {seasons.length > 1 && ` · ${seasons.length} saisons`}
+            {meta?.status && STATUS_FR[meta.status] && ` · ${STATUS_FR[meta.status]}`}
           </p>
+          {meta?.genres?.length > 0 && (
+            <div className="genres">
+              {meta.genres.map((g) => (
+                <span key={g} className="chip">
+                  {g}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="hero-actions">
             <a className="btn primary" href={'#/watch/' + encodeURIComponent(resumeEp.path)}>
               ▶ {getPos(resumeEp.path) > 5 ? 'Reprendre' : 'Lecture'}
             </a>
+            <button className="btn ghost" onClick={refreshMeta} disabled={refreshing}>
+              {refreshing ? '…' : meta ? '↻ Métadonnées' : '↻ Récupérer les infos (AniList)'}
+            </button>
           </div>
         </div>
       </div>
 
       <div className="page">
+        {desc && (
+          <p className={'synopsis' + (descOpen ? ' open' : '')} onClick={() => setDescOpen(!descOpen)}>
+            {desc}
+          </p>
+        )}
         <div className="season-bar">
           <h2>Épisodes</h2>
           {seasons.length > 1 && (

@@ -68,7 +68,32 @@ Deux modes :
 > non couvert, copie simplement l'URL de l'épisode ou de la playlist dans l'onglet
 > Téléchargements : yt-dlp saura presque toujours la télécharger.
 
-### 2. Télécharger par URL (onglet Téléchargements)
+### 2. Suivre une série (téléchargement automatique)
+
+Deux façons :
+
+- bouton **★ Suivre** sur un résultat playlist de la Recherche ;
+- section **Séries suivies** de l'onglet Téléchargements (URL de playlist/chaîne + nom
+  de série).
+
+AniStream vérifie ensuite périodiquement (toutes les 6 h par défaut, réglable via
+`ANISTREAM_CHECK_HOURS`) et télécharge **uniquement les nouveaux épisodes**, grâce à
+l'archive yt-dlp (`.anistream/archive.txt` dans le dossier de la série). Un épisode
+supprimé de la bibliothèque n'est pas retéléchargé. La première vérification part
+immédiatement, et un bouton « Vérifier » permet de forcer un passage.
+
+### 3. Métadonnées AniList (affiches, synopsis, genres, note)
+
+À la première apparition d'une série (téléchargement ou suivi), AniStream interroge
+l'API publique [AniList](https://anilist.co) avec le nom de la série et enregistre
+localement : titre officiel, affiche, bannière, synopsis, genres, note et nombre
+d'épisodes (`.anistream/meta.json`, `cover.jpg`, `banner.jpg`). L'accueil et les fiches
+séries les utilisent automatiquement.
+
+Si la correspondance est mauvaise (nom de dossier trop vague), le bouton
+**↻ Métadonnées** d'une fiche série permet de relancer la recherche avec un autre titre.
+
+### 4. Télécharger par URL (onglet Téléchargements)
 
 Coller n'importe quelle URL supportée par yt-dlp :
 
@@ -79,7 +104,7 @@ Coller n'importe quelle URL supportée par yt-dlp :
 
 La progression s'affiche en direct (2 téléchargements en parallèle maximum).
 
-### 3. Regarder (Accueil)
+### 5. Regarder (Accueil)
 
 L'accueil affiche un héros avec ta série la plus récente, une rangée « Continuer la
 lecture » et ta bibliothèque en carrousel. Chaque fiche série liste les épisodes par
@@ -105,6 +130,7 @@ bibliothèque au prochain rechargement.
 | `ANISTREAM_HOST`  | `127.0.0.1`    | Interface d'écoute                      |
 | `ANISTREAM_PORT`  | `8000`         | Port                                    |
 | `ANISTREAM_LANGS` | `fr,en`        | Langues de sous-titres à récupérer      |
+| `ANISTREAM_CHECK_HOURS` | `6`      | Intervalle de vérification des séries suivies |
 
 Exemple pour stocker la bibliothèque dans tes Vidéos :
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, postJSON, fmtSpeed } from '../api.js'
 
 const STATUS = {
@@ -7,6 +7,111 @@ const STATUS = {
   processing: ['Traitement (ffmpeg)…', 'active'],
   done: ['Terminé ✓', 'ok'],
   error: ['Échec', 'err'],
+}
+
+const ago = (ts) => {
+  if (!ts) return 'jamais'
+  const m = Math.round((Date.now() / 1000 - ts) / 60)
+  if (m < 1) return "à l'instant"
+  if (m < 60) return `il y a ${m} min`
+  const h = Math.round(m / 60)
+  return h < 24 ? `il y a ${h} h` : `il y a ${Math.round(h / 24)} j`
+}
+
+function Watches() {
+  const [data, setData] = useState(null)
+  const [url, setUrl] = useState('')
+  const [series, setSeries] = useState('')
+  const [season, setSeason] = useState('')
+
+  const refresh = useCallback(async () => {
+    try {
+      setData(await api('/api/watches'))
+    } catch {
+      /* serveur injoignable */
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const t = setInterval(refresh, 10000)
+    return () => clearInterval(t)
+  }, [refresh])
+
+  const add = async (e) => {
+    e.preventDefault()
+    try {
+      await postJSON('/api/watches', {
+        url: url.trim(),
+        series: series.trim(),
+        season: season ? parseInt(season, 10) : null,
+      })
+      setUrl('')
+      setSeries('')
+      setSeason('')
+      refresh()
+    } catch (err) {
+      alert('Erreur : ' + err.message)
+    }
+  }
+
+  return (
+    <section className="watches">
+      <h2>Séries suivies</h2>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Les nouveaux épisodes de ces playlists/chaînes sont téléchargés automatiquement
+        {data ? ` (vérification toutes les ${data.check_hours} h)` : ''}.
+      </p>
+      <form className="dl-form" onSubmit={add}>
+        <label>
+          URL de la playlist / chaîne
+          <input placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} required />
+        </label>
+        <label>
+          Série (dossier)
+          <input value={series} onChange={(e) => setSeries(e.target.value)} required />
+        </label>
+        <label>
+          Saison
+          <input type="number" min="0" placeholder="—" value={season} onChange={(e) => setSeason(e.target.value)} />
+        </label>
+        <button className="btn primary">Suivre</button>
+      </form>
+      {data?.watches?.length > 0 &&
+        data.watches.map((w) => (
+          <div key={w.id} className="job watch-row">
+            <div className="job-head">
+              <span className="job-title">{w.series}</span>
+              <span className="watch-actions">
+                <button
+                  className="btn ghost small"
+                  onClick={async () => {
+                    await postJSON(`/api/watches/${w.id}/check`, {})
+                    refresh()
+                  }}
+                >
+                  Vérifier
+                </button>
+                <button
+                  className="btn ghost small"
+                  onClick={async () => {
+                    if (!confirm(`Ne plus suivre « ${w.series} » ? (les fichiers sont conservés)`)) return
+                    await api('/api/watches/' + w.id, { method: 'DELETE' })
+                    refresh()
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+            <div className="job-sub">
+              {w.url}
+              {w.season != null ? ` · Saison ${w.season}` : ''} · dernière vérification : {ago(w.last_check)}
+            </div>
+          </div>
+        ))}
+    </section>
+  )
 }
 
 export default function Downloads({ onLibraryChange }) {
@@ -111,7 +216,10 @@ export default function Downloads({ onLibraryChange }) {
           return (
             <div key={j.id} className="job">
               <div className="job-head">
-                <span className="job-title">{j.title || j.url}</span>
+                <span className="job-title">
+                  {j.kind === 'watch' && <span className="pill">AUTO</span>}
+                  {j.title || j.url}
+                </span>
                 <span className={'job-status ' + cls}>{label}</span>
               </div>
               <div className="job-sub">
@@ -144,6 +252,8 @@ export default function Downloads({ onLibraryChange }) {
         2 téléchargements en parallèle maximum. Les playlists sont numérotées automatiquement. Les
         plateformes protégées par DRM (Crunchyroll, Netflix, ADN…) ne sont pas prises en charge.
       </p>
+
+      <Watches />
     </main>
   )
 }

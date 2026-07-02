@@ -105,21 +105,24 @@ export default function Home({ library }) {
   }
 
   const firstEp = hero.episodes[0]
+  const heroBg = hero.meta?.banner || hero.cover
+  const heroDesc = hero.meta?.description
 
   return (
     <main className="home">
       <div
         className="hero"
-        style={hero.cover ? { backgroundImage: `url("${streamUrl(hero.cover)}")` } : undefined}
+        style={heroBg ? { backgroundImage: `url("${streamUrl(heroBg)}")` } : undefined}
       >
         <div className="hero-fade" />
         <div className="hero-content">
-          <h1>{hero.name}</h1>
-          <p>
+          <h1>{hero.meta?.title || hero.name}</h1>
+          <p className="hero-facts">
+            {hero.meta?.score && <span className="score">★ {hero.meta.score / 10}</span>}
             {hero.episodes.length} épisode{hero.episodes.length > 1 ? 's' : ''}
-            {hero.episodes.some((e) => e.season) &&
-              ` · ${new Set(hero.episodes.map((e) => e.season).filter(Boolean)).size} saison(s)`}
+            {hero.meta?.genres?.length > 0 && ' · ' + hero.meta.genres.slice(0, 4).join(' · ')}
           </p>
+          {heroDesc && <p className="hero-desc">{heroDesc}</p>}
           <div className="hero-actions">
             <a className="btn primary" href={'#/watch/' + encodeURIComponent(firstEp.path)}>
               ▶ Lecture

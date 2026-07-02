@@ -5,7 +5,7 @@ function Result({ result, defaultSeries, seriesNames }) {
   const [open, setOpen] = useState(false)
   const [series, setSeries] = useState(defaultSeries)
   const [season, setSeason] = useState('')
-  const [state, setState] = useState('idle') // idle | busy | done
+  const [state, setState] = useState('idle') // idle | busy | done | followed
 
   const launch = async (e) => {
     e.preventDefault()
@@ -17,6 +17,21 @@ function Result({ result, defaultSeries, seriesNames }) {
         season: season ? parseInt(season, 10) : null,
       })
       setState('done')
+    } catch (err) {
+      alert('Erreur : ' + err.message)
+      setState('idle')
+    }
+  }
+
+  const follow = async () => {
+    setState('busy')
+    try {
+      await postJSON('/api/watches', {
+        url: result.url,
+        series: series.trim() || defaultSeries,
+        season: season ? parseInt(season, 10) : null,
+      })
+      setState('followed')
     } catch (err) {
       alert('Erreur : ' + err.message)
       setState('idle')
@@ -68,6 +83,17 @@ function Result({ result, defaultSeries, seriesNames }) {
           <button className="btn primary small" disabled={state !== 'idle'}>
             {state === 'done' ? 'Lancé ✓' : state === 'busy' ? '…' : 'Lancer'}
           </button>
+          {result.is_playlist && (
+            <button
+              type="button"
+              className="btn ghost small"
+              disabled={state !== 'idle'}
+              onClick={follow}
+              title="Télécharge maintenant puis récupère automatiquement les nouveaux épisodes"
+            >
+              {state === 'followed' ? 'Suivie ✓' : '★ Suivre'}
+            </button>
+          )}
           <datalist id="series-names">
             {seriesNames.map((n) => (
               <option key={n} value={n} />
