@@ -11,11 +11,13 @@ Variables d'environnement :
     ANISTREAM_LANGS   langues de sous-titres, séparées par des virgules (défaut : fr,en)
 """
 
+import functools
 import json
 import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -40,7 +42,8 @@ MEDIA_DIR = Path(os.environ.get('ANISTREAM_MEDIA', WEBAPP_DIR / 'media')).resolv
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 SUB_LANGS = [x.strip() for x in os.environ.get('ANISTREAM_LANGS', 'fr,en').split(',') if x.strip()]
-HAS_FFMPEG = bool(shutil.which('ffmpeg'))
+FFMPEG = shutil.which('ffmpeg')
+HAS_FFMPEG = bool(FFMPEG)
 
 VIDEO_EXTS = {'.mp4', '.mkv', '.webm', '.m4v', '.mov'}
 THUMB_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -609,6 +612,100 @@ def stream(rel_path: str, request: Request):
     if status == 206:
         headers['Content-Range'] = f'bytes {start}-{end}/{size}'
     return StreamingResponse(iter_file(), status_code=status, headers=headers, media_type=content_type)
+
+
+# ---------------------------------------------------------------------------
+# Transcodage à la volée (secours quand le navigateur ne peut pas lire)
+# ---------------------------------------------------------------------------
+
+def _ffmpeg_list(flag, marker):
+    try:
+        out = subprocess.run([FFMPEG, '-hide_banner', flag],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return set()
+    names = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith(marker) and len(line.split()) >= 2:
+            names.add(line.split()[1])
+    return names
+
+
+@functools.lru_cache(maxsize=1)
+def transcode_profile():
+    """Choisit le meilleur profil selon les encodeurs ffmpeg disponibles."""
+    if not FFMPEG:
+        return None
+    venc = _ffmpeg_list('-encoders', 'V')
+    aenc = _ffmpeg_list('-encoders', 'A')
+    audio = (['-c:a', 'aac', '-b:a', '160k'] if 'aac' in aenc
+             else ['-c:a', 'libopus'] if 'libopus' in aenc
+             else ['-c:a', 'libvorbis'] if 'libvorbis' in aenc
+             else ['-an'])
+    if 'libx264' in venc:
+        return {
+            'args': ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                     *audio, '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                     '-f', 'mp4'],
+            'mime': 'video/mp4',
+        }
+    if 'libvpx' in venc:
+        args = ['-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M']
+        args += audio if audio != ['-c:a', 'aac', '-b:a', '160k'] else ['-an']
+        return {'args': [*args, '-f', 'webm'], 'mime': 'video/webm'}
+    return None
+
+
+@app.get('/api/transcode/{rel_path:path}')
+def transcode(rel_path: str, t: float = 0):
+    file = safe_media_path(rel_path)
+    profile = transcode_profile()
+    if profile is None:
+        raise HTTPException(501, 'ffmpeg indisponible : transcodage impossible')
+    cmd = [FFMPEG, '-v', 'error', '-nostdin']
+    if t > 0:
+        cmd += ['-ss', f'{t:.3f}']
+    cmd += ['-i', str(file), *profile['args'], 'pipe:1']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def gen():
+        try:
+            while chunk := proc.stdout.read(64 * 1024):
+                yield chunk
+        finally:
+            proc.kill()
+
+    return StreamingResponse(gen(), media_type=profile['mime'],
+                             headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/api/mediainfo/{rel_path:path}')
+def mediainfo(rel_path: str):
+    """Durée du fichier (pour la barre de lecture en mode transcodage)."""
+    file = safe_media_path(rel_path)
+    duration = None
+    ffprobe = shutil.which('ffprobe')
+    if ffprobe:
+        try:
+            out = subprocess.run(
+                [ffprobe, '-v', 'error', '-show_entries', 'format=duration',
+                 '-of', 'csv=p=0', str(file)],
+                capture_output=True, text=True, timeout=15).stdout.strip()
+            duration = float(out)
+        except (ValueError, subprocess.SubprocessError):
+            pass
+    if duration is None and FFMPEG:
+        # pas de ffprobe : on lit la ligne « Duration: » de ffmpeg -i
+        try:
+            err = subprocess.run([FFMPEG, '-hide_banner', '-i', str(file)],
+                                 capture_output=True, text=True, timeout=15).stderr
+            m = re.search(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)', err)
+            if m:
+                duration = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        except subprocess.SubprocessError:
+            pass
+    return {'duration': duration, 'transcodable': transcode_profile() is not None}
 
 
 # ---------------------------------------------------------------------------

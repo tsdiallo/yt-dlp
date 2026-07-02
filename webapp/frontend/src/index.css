@@ -606,3 +606,12 @@ select:focus, input:focus { outline: none; border-color: var(--violet); }
 .watch-row .job-title { display: flex; align-items: center; gap: 8px; }
 .watch-actions { display: flex; gap: 8px; }
 .job-title .pill { margin-right: 8px; }
+
+.tc-badge {
+  background: var(--violet);
+  border-radius: 5px;
+  padding: 2px 9px;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 8px;
+}
