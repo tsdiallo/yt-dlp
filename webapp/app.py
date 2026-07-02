@@ -719,19 +719,42 @@ def safe_media_path(rel_path):
     return target
 
 
-@app.delete('/api/media/{rel_path:path}')
-def delete_episode(rel_path: str):
-    video = safe_media_path(rel_path)
+def _delete_episode_files(video):
+    """Supprime un épisode et ses fichiers associés ; renvoie les octets libérés."""
+    freed = 0
     prefix = video.stem + '.'
     for f in list(video.parent.iterdir()):
         if f == video or f.name.startswith(prefix):
+            freed += f.stat().st_size
             f.unlink()
     # supprime les dossiers devenus vides (saison puis série)
     parent = video.parent
     while parent != MEDIA_DIR and not any(parent.iterdir()):
         parent.rmdir()
         parent = parent.parent
-    return {'ok': True}
+    return freed
+
+
+@app.delete('/api/media/{rel_path:path}')
+def delete_episode(rel_path: str):
+    freed = _delete_episode_files(safe_media_path(rel_path))
+    return {'ok': True, 'freed': freed}
+
+
+class DeleteBatchRequest(BaseModel):
+    paths: list[str]
+
+
+@app.post('/api/media/delete-batch')
+def delete_batch(req: DeleteBatchRequest):
+    freed = deleted = 0
+    for rel_path in req.paths[:1000]:
+        try:
+            freed += _delete_episode_files(safe_media_path(rel_path))
+            deleted += 1
+        except HTTPException:
+            pass  # déjà supprimé ou chemin invalide : on continue
+    return {'deleted': deleted, 'freed': freed}
 
 
 # ---------------------------------------------------------------------------

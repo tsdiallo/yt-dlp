@@ -69,7 +69,7 @@ export default function App() {
       )}
       {route.page === 'search' && <Search library={library} />}
       {route.page === 'downloads' && <Downloads onLibraryChange={refreshLibrary} />}
-      {route.page === 'stats' && <Stats library={library} />}
+      {route.page === 'stats' && <Stats library={library} onLibraryChange={refreshLibrary} />}
     </>
   )
 }
