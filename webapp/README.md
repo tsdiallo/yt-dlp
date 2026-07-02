@@ -10,7 +10,14 @@ yt-dlp de ce dépôt : tous les sites supportés par yt-dlp (~1800) fonctionnent
 > pas prises en charge — yt-dlp ne contourne pas les DRM. À utiliser uniquement avec des
 > contenus auxquels vous avez légalement accès.
 
-## Installation
+## Installation Windows en un double-clic (recommandé)
+
+Télécharger [`webapp/installer/Install-AniStream.bat`](installer/Install-AniStream.bat)
+et double-cliquer dessus : tout est installé automatiquement (application, Python
+autonome, ffmpeg), **sans droits administrateur**, avec une **icône sur le Bureau** qui
+lance AniStream d'un double-clic. Détails dans [`installer/README.md`](installer/README.md).
+
+## Installation manuelle (Linux, macOS, ou depuis les sources)
 
 ```bash
 pip install -r webapp/requirements.txt
@@ -131,6 +138,7 @@ bibliothèque au prochain rechargement.
 | `ANISTREAM_PORT`  | `8000`         | Port                                    |
 | `ANISTREAM_LANGS` | `fr,en`        | Langues de sous-titres à récupérer      |
 | `ANISTREAM_CHECK_HOURS` | `6`      | Intervalle de vérification des séries suivies |
+| `ANISTREAM_DATA`  | `webapp/`      | Dossier des données persistantes (`watches.json`) |
 
 Exemple pour stocker la bibliothèque dans tes Vidéos :
 

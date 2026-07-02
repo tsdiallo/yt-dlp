@@ -287,7 +287,11 @@ def clear_downloads():
 # Suivi automatique de séries
 # ---------------------------------------------------------------------------
 
-WATCHES_FILE = WEBAPP_DIR / 'watches.json'
+# stocké hors du dossier de l'application si ANISTREAM_DATA est défini,
+# pour survivre aux mises à jour (utilisé par l'installateur Windows)
+DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+WATCHES_FILE = DATA_DIR / 'watches.json'
 CHECK_HOURS = float(os.environ.get('ANISTREAM_CHECK_HOURS', '6'))
 
 watches_lock = threading.Lock()
