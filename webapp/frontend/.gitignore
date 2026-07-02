@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# le build est commité pour éviter d'exiger Node à l'usage
+!dist/
+!dist/**
