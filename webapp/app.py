@@ -11,12 +11,15 @@ Variables d'environnement :
     ANISTREAM_LANGS   langues de sous-titres, séparées par des virgules (défaut : fr,en)
 """
 
+import json
 import mimetypes
 import os
 import re
 import shutil
 import sys
 import threading
+import time
+import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
@@ -65,6 +68,118 @@ def sanitize_name(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip() or 'Sans titre'
 
 
+def series_meta_dir(series_name):
+    return MEDIA_DIR / sanitize_name(series_name) / '.anistream'
+
+
+def archive_file(series_name):
+    return series_meta_dir(series_name) / 'archive.txt'
+
+
+# ---------------------------------------------------------------------------
+# Métadonnées AniList
+# ---------------------------------------------------------------------------
+
+ANILIST_QUERY = '''query ($s: String) {
+  Media(search: $s, type: ANIME) {
+    id
+    title { romaji english }
+    description(asHtml: false)
+    genres
+    averageScore
+    episodes
+    status
+    coverImage { extraLarge }
+    bannerImage
+  }
+}'''
+
+
+def http_get(url, timeout=20):
+    req = urllib.request.Request(url, headers={'User-Agent': 'AniStream/1.0'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def fetch_anilist(search):
+    body = json.dumps({'query': ANILIST_QUERY, 'variables': {'s': search}}).encode()
+    req = urllib.request.Request(
+        'https://graphql.anilist.co', data=body,
+        headers={'Content-Type': 'application/json', 'User-Agent': 'AniStream/1.0'})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r).get('data', {}).get('Media')
+
+
+def clean_description(html):
+    if not html:
+        return None
+    text = re.sub(r'<br\s*/?>', '\n', html)
+    return re.sub(r'<[^>]+>', '', text).strip()
+
+
+def refresh_metadata(series_name, search=None):
+    media = fetch_anilist(search or series_name)
+    if not media:
+        return None
+    mdir = series_meta_dir(series_name)
+    mdir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        'anilist_id': media['id'],
+        'title': (media.get('title') or {}).get('english') or (media.get('title') or {}).get('romaji'),
+        'description': clean_description(media.get('description')),
+        'genres': media.get('genres') or [],
+        'score': media.get('averageScore'),
+        'episodes': media.get('episodes'),
+        'status': media.get('status'),
+        'fetched_at': time.time(),
+    }
+    for key, url in (('cover', (media.get('coverImage') or {}).get('extraLarge')),
+                     ('banner', media.get('bannerImage'))):
+        if url:
+            try:
+                (mdir / f'{key}.jpg').write_bytes(http_get(url))
+            except Exception:
+                pass
+    (mdir / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=1))
+    return meta
+
+
+def load_metadata(sdir):
+    mdir = sdir / '.anistream'
+    try:
+        meta = json.loads((mdir / 'meta.json').read_text())
+    except (OSError, ValueError):
+        return None
+    for key in ('cover', 'banner'):
+        f = mdir / f'{key}.jpg'
+        meta[key] = str(f.relative_to(MEDIA_DIR)) if f.is_file() else None
+    return meta
+
+
+def ensure_metadata(series_name):
+    """Récupère les métadonnées AniList à la première apparition d'une série."""
+    if not (series_meta_dir(series_name) / 'meta.json').is_file():
+        try:
+            refresh_metadata(series_name)
+        except Exception:
+            pass
+
+
+class MetadataRequest(BaseModel):
+    query: str | None = None
+
+
+@app.post('/api/series/{name}/metadata')
+def series_metadata(name: str, req: MetadataRequest):
+    try:
+        meta = refresh_metadata(name, req.query)
+    except Exception as e:
+        raise HTTPException(502, f'AniList injoignable : {e}')
+    if meta is None:
+        raise HTTPException(404, 'Aucun animé trouvé sur AniList pour cette recherche')
+    return meta
+
+
 def progress_hook(job_id):
     def hook(d):
         with jobs_lock:
@@ -93,6 +208,8 @@ def build_ydl_opts(req: DownloadRequest, job_id):
     dest = MEDIA_DIR / sanitize_name(req.series)
     if req.season is not None:
         dest = dest / f'Saison {req.season:02d}'
+    adir = archive_file(req.series)
+    adir.parent.mkdir(parents=True, exist_ok=True)
     opts = {
         'outtmpl': str(dest / '%(playlist_index&{} - |)s%(title)s.%(ext)s'),
         'progress_hooks': [progress_hook(job_id)],
@@ -103,6 +220,9 @@ def build_ydl_opts(req: DownloadRequest, job_id):
         'subtitleslangs': SUB_LANGS,
         'restrictfilenames': False,
         'windowsfilenames': True,
+        # mémorise ce qui a déjà été téléchargé : les suivis ne reprennent
+        # que les nouveaux épisodes, même si un fichier a été supprimé
+        'download_archive': str(adir),
     }
     if HAS_FFMPEG:
         # mp4/h264 en priorité pour la lecture native dans le navigateur
@@ -122,6 +242,7 @@ def run_download(job_id, req: DownloadRequest):
     with download_slots:
         with jobs_lock:
             jobs[job_id]['status'] = 'downloading'
+        ensure_metadata(req.series)
         try:
             with yt_dlp.YoutubeDL(build_ydl_opts(req, job_id)) as ydl:
                 retcode = ydl.download([req.url])
@@ -145,22 +266,7 @@ def start_download(req: DownloadRequest):
         raise HTTPException(400, 'URL manquante')
     if not req.series.strip():
         raise HTTPException(400, 'Nom de série manquant')
-    job_id = uuid.uuid4().hex[:12]
-    with jobs_lock:
-        jobs[job_id] = {
-            'id': job_id,
-            'url': req.url,
-            'series': sanitize_name(req.series),
-            'season': req.season,
-            'title': None,
-            'status': 'queued',
-            'progress': 0.0,
-            'speed': None,
-            'eta': None,
-            'error': None,
-        }
-    threading.Thread(target=run_download, args=(job_id, req), daemon=True).start()
-    return jobs[job_id]
+    return enqueue_download(req)
 
 
 @app.get('/api/downloads')
@@ -175,6 +281,126 @@ def clear_downloads():
         for jid in [j['id'] for j in jobs.values() if j['status'] in ('done', 'error')]:
             del jobs[jid]
     return {'ok': True}
+
+
+# ---------------------------------------------------------------------------
+# Suivi automatique de séries
+# ---------------------------------------------------------------------------
+
+# stocké hors du dossier de l'application si ANISTREAM_DATA est défini,
+# pour survivre aux mises à jour (utilisé par l'installateur Windows)
+DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+WATCHES_FILE = DATA_DIR / 'watches.json'
+CHECK_HOURS = float(os.environ.get('ANISTREAM_CHECK_HOURS', '6'))
+
+watches_lock = threading.Lock()
+try:
+    watches = json.loads(WATCHES_FILE.read_text())
+except (OSError, ValueError):
+    watches = []
+
+
+def save_watches():
+    WATCHES_FILE.write_text(json.dumps(watches, ensure_ascii=False, indent=1))
+
+
+class WatchRequest(BaseModel):
+    url: str
+    series: str
+    season: int | None = None
+
+
+def enqueue_download(req: DownloadRequest, kind='manual'):
+    job_id = uuid.uuid4().hex[:12]
+    with jobs_lock:
+        jobs[job_id] = {
+            'id': job_id,
+            'kind': kind,
+            'url': req.url,
+            'series': sanitize_name(req.series),
+            'season': req.season,
+            'title': None,
+            'status': 'queued',
+            'progress': 0.0,
+            'speed': None,
+            'eta': None,
+            'error': None,
+        }
+    threading.Thread(target=run_download, args=(job_id, req), daemon=True).start()
+    return jobs[job_id]
+
+
+def check_watch(watch):
+    with watches_lock:
+        watch['last_check'] = time.time()
+        save_watches()
+    return enqueue_download(
+        DownloadRequest(url=watch['url'], series=watch['series'], season=watch.get('season')),
+        kind='watch')
+
+
+@app.get('/api/watches')
+def list_watches():
+    with watches_lock:
+        return {'watches': list(watches), 'check_hours': CHECK_HOURS}
+
+
+@app.post('/api/watches')
+def add_watch(req: WatchRequest):
+    if not req.url.strip() or not req.series.strip():
+        raise HTTPException(400, 'URL ou nom de série manquant')
+    watch = {
+        'id': uuid.uuid4().hex[:12],
+        'url': req.url.strip(),
+        'series': sanitize_name(req.series),
+        'season': req.season,
+        'added_at': time.time(),
+        'last_check': None,
+    }
+    with watches_lock:
+        if any(w['url'] == watch['url'] and w['series'] == watch['series'] for w in watches):
+            raise HTTPException(409, 'Cette série est déjà suivie avec cette URL')
+        watches.append(watch)
+        save_watches()
+    check_watch(watch)  # première vérification immédiate
+    return watch
+
+
+@app.delete('/api/watches/{watch_id}')
+def delete_watch(watch_id: str):
+    with watches_lock:
+        before = len(watches)
+        watches[:] = [w for w in watches if w['id'] != watch_id]
+        if len(watches) == before:
+            raise HTTPException(404, 'Suivi introuvable')
+        save_watches()
+    return {'ok': True}
+
+
+@app.post('/api/watches/{watch_id}/check')
+def check_watch_now(watch_id: str):
+    with watches_lock:
+        watch = next((w for w in watches if w['id'] == watch_id), None)
+    if watch is None:
+        raise HTTPException(404, 'Suivi introuvable')
+    return check_watch(watch)
+
+
+def watch_loop():
+    while True:
+        time.sleep(60)
+        now = time.time()
+        with watches_lock:
+            due = [w for w in watches if now - (w.get('last_check') or 0) >= CHECK_HOURS * 3600]
+        for w in due:
+            try:
+                check_watch(w)
+            except Exception:
+                pass
+
+
+threading.Thread(target=watch_loop, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -307,11 +533,14 @@ def library():
                 'season': f.parent.name if f.parent != sdir else None,
                 'subs': subs,
                 'thumb': thumb,
+                'mtime': f.stat().st_mtime,
             })
         if episodes:
+            meta = load_metadata(sdir)
             series_list.append({
                 'name': sdir.name,
-                'cover': next((e['thumb'] for e in episodes if e['thumb']), None),
+                'cover': (meta or {}).get('cover') or next((e['thumb'] for e in episodes if e['thumb']), None),
+                'meta': meta,
                 'episodes': episodes,
             })
     return series_list
@@ -383,15 +612,26 @@ def stream(rel_path: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Frontend statique
+# Frontend (build React dans frontend/dist)
 # ---------------------------------------------------------------------------
+
+FRONTEND_DIST = WEBAPP_DIR / 'frontend' / 'dist'
+
 
 @app.get('/')
 def index():
-    return FileResponse(WEBAPP_DIR / 'static' / 'index.html')
+    if not (FRONTEND_DIST / 'index.html').is_file():
+        raise HTTPException(500, "Frontend non construit : lancez `npm install && npm run build` dans webapp/frontend")
+    return FileResponse(FRONTEND_DIST / 'index.html')
 
 
-app.mount('/static', StaticFiles(directory=WEBAPP_DIR / 'static'), name='static')
+@app.get('/favicon.svg')
+def favicon():
+    return FileResponse(FRONTEND_DIST / 'favicon.svg')
+
+
+if (FRONTEND_DIST / 'assets').is_dir():
+    app.mount('/assets', StaticFiles(directory=FRONTEND_DIST / 'assets'), name='assets')
 
 
 if __name__ == '__main__':
