@@ -615,3 +615,23 @@ select:focus, input:focus { outline: none; border-color: var(--violet); }
   font-size: 12px;
   margin-right: 8px;
 }
+
+/* ---------------------------------------------------------------- bibliotheque */
+
+.lib-toolbar {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 10px;
+  padding: 10px 4vw 22px;
+  position: relative;
+  z-index: 2;
+}
+.lib-search { min-width: 220px; }
+@media (max-width: 900px) { .lib-toolbar { grid-template-columns: 1fr 1fr; } }
+
+.series-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 20px 14px;
+}
+.series-grid .card { width: auto; }

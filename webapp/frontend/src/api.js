@@ -43,6 +43,19 @@ export const clearPos = (path) => {
   localStorage.removeItem('anistream.pos.' + path)
 }
 
+// --- watchlist (« Ma liste »)
+
+export const getWatchlist = () =>
+  new Set(JSON.parse(localStorage.getItem('anistream.watchlist') || '[]'))
+
+export const toggleWatchlist = (name) => {
+  const s = getWatchlist()
+  if (s.has(name)) s.delete(name)
+  else s.add(name)
+  localStorage.setItem('anistream.watchlist', JSON.stringify([...s]))
+  return s
+}
+
 // --- formatage
 
 export const fmtTime = (s) => {

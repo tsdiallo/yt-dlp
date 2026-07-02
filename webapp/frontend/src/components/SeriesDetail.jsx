@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react'
-import { api, postJSON, streamUrl, getSeen, getPos, getDur } from '../api.js'
+import {
+  api,
+  postJSON,
+  streamUrl,
+  getSeen,
+  getPos,
+  getDur,
+  getWatchlist,
+  toggleWatchlist,
+} from '../api.js'
 
 const STATUS_FR = {
   RELEASING: 'En cours de diffusion',
@@ -25,6 +34,7 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
   const [seasonIdx, setSeasonIdx] = useState(0)
   const [descOpen, setDescOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [inList, setInList] = useState(() => getWatchlist().has(name))
 
   const refreshMeta = async () => {
     const query = prompt(
@@ -101,6 +111,12 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
             <a className="btn primary" href={'#/watch/' + encodeURIComponent(resumeEp.path)}>
               ▶ {getPos(resumeEp.path) > 5 ? 'Reprendre' : 'Lecture'}
             </a>
+            <button
+              className="btn ghost"
+              onClick={() => setInList(toggleWatchlist(name).has(name))}
+            >
+              {inList ? '✓ Dans ma liste' : '+ Ma liste'}
+            </button>
             <button className="btn ghost" onClick={refreshMeta} disabled={refreshing}>
               {refreshing ? '…' : meta ? '↻ Métadonnées' : '↻ Récupérer les infos (AniList)'}
             </button>
