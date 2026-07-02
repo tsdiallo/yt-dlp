@@ -168,6 +168,49 @@ def ensure_metadata(series_name):
             pass
 
 
+def read_intro_raw(sdir):
+    try:
+        data = json.loads((sdir / '.anistream' / 'intro.json').read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def load_intro(sdir):
+    data = read_intro_raw(sdir)
+    if isinstance(data.get('start'), (int, float)) and isinstance(data.get('end'), (int, float)) \
+            and data['end'] > data['start']:
+        return {'start': float(data['start']), 'end': float(data['end'])}
+    return None
+
+
+class IntroRequest(BaseModel):
+    start: float | None = None
+    end: float | None = None
+
+
+@app.post('/api/series/{name}/intro')
+def set_intro(name: str, req: IntroRequest):
+    """Définit les marqueurs d'intro de la série (start/end en secondes).
+    Les champs absents conservent la valeur existante ; start et end à null effacent."""
+    sdir = MEDIA_DIR / sanitize_name(name)
+    if not sdir.is_dir():
+        raise HTTPException(404, 'Série introuvable')
+    mdir = sdir / '.anistream'
+    intro_file = mdir / 'intro.json'
+    if req.start is None and req.end is None:
+        intro_file.unlink(missing_ok=True)
+        return {'intro': None}
+    current = read_intro_raw(sdir)
+    if req.start is not None:
+        current['start'] = max(0.0, req.start)
+    if req.end is not None:
+        current['end'] = max(0.0, req.end)
+    mdir.mkdir(parents=True, exist_ok=True)
+    intro_file.write_text(json.dumps(current))
+    return {'intro': load_intro(sdir) or current}
+
+
 class MetadataRequest(BaseModel):
     query: str | None = None
 
@@ -544,6 +587,7 @@ def library():
                 'name': sdir.name,
                 'cover': (meta or {}).get('cover') or next((e['thumb'] for e in episodes if e['thumb']), None),
                 'meta': meta,
+                'intro': load_intro(sdir),
                 'episodes': episodes,
             })
     return series_list

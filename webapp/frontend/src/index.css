@@ -635,3 +635,12 @@ select:focus, input:focus { outline: none; border-color: var(--violet); }
   gap: 20px 14px;
 }
 .series-grid .card { width: auto; }
+
+.skip-intro {
+  position: absolute;
+  right: 4vw;
+  bottom: 16vh;
+  z-index: 4;
+  border: 1.5px solid rgba(255, 255, 255, .6);
+  backdrop-filter: blur(4px);
+}

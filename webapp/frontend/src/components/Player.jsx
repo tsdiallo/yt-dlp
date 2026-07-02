@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
+  postJSON,
   streamUrl,
   fmtTime,
   qualityLabel,
@@ -15,7 +16,7 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const transcodeUrl = (path, t) =>
   '/api/transcode/' + path.split('/').map(encodeURIComponent).join('/') + (t > 0 ? `?t=${t}` : '')
 
-export default function Player({ path, library }) {
+export default function Player({ path, library, onLibraryChange }) {
   const videoRef = useRef(null)
   const shellRef = useRef(null)
   const hideTimer = useRef(null)
@@ -37,6 +38,7 @@ export default function Player({ path, library }) {
   // mode transcodage : null = lecture directe, sinon décalage de départ (s)
   const [tcOffset, setTcOffset] = useState(null)
   const [tcDuration, setTcDuration] = useState(null)
+  const [introSkipped, setIntroSkipped] = useState(false)
 
   const { ep, series, next } = useMemo(() => {
     if (!library) return {}
@@ -55,6 +57,7 @@ export default function Player({ path, library }) {
     setTime(0)
     setDuration(0)
     setCountdown(null)
+    setIntroSkipped(false)
   }, [path])
 
   const inTc = tcOffset !== null
@@ -325,6 +328,22 @@ export default function Player({ path, library }) {
 
       {error && <div className="player-error">{error}</div>}
 
+      {series.intro &&
+        !introSkipped &&
+        effTime >= series.intro.start &&
+        effTime < series.intro.end - 1 && (
+          <button
+            className="btn ghost skip-intro"
+            onClick={(e) => {
+              e.stopPropagation()
+              setIntroSkipped(true)
+              seekTo(series.intro.end)
+            }}
+          >
+            Passer l'intro ⏭
+          </button>
+        )}
+
       {countdown !== null && next && (
         <div className="next-overlay" onClick={(e) => e.stopPropagation()}>
           <p>Épisode suivant dans {countdown} s</p>
@@ -446,6 +465,58 @@ export default function Player({ path, library }) {
                 )}
               </div>
             )}
+
+            <div className="menu-wrap">
+              <button
+                className="icon-btn"
+                title="Marqueurs d'intro (Passer l'intro)"
+                onClick={() => setMenu(menu === 'intro' ? null : 'intro')}
+              >
+                ⏩
+              </button>
+              {menu === 'intro' && (
+                <div className="menu">
+                  <button
+                    onClick={async () => {
+                      await postJSON(
+                        '/api/series/' + encodeURIComponent(series.name) + '/intro',
+                        { start: effTime },
+                      )
+                      onLibraryChange?.()
+                      setMenu(null)
+                    }}
+                  >
+                    Début d'intro = {fmtTime(effTime)}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await postJSON(
+                        '/api/series/' + encodeURIComponent(series.name) + '/intro',
+                        { end: effTime },
+                      )
+                      onLibraryChange?.()
+                      setMenu(null)
+                    }}
+                  >
+                    Fin d'intro = {fmtTime(effTime)}
+                  </button>
+                  {series.intro && (
+                    <button
+                      onClick={async () => {
+                        await postJSON(
+                          '/api/series/' + encodeURIComponent(series.name) + '/intro',
+                          {},
+                        )
+                        onLibraryChange?.()
+                        setMenu(null)
+                      }}
+                    >
+                      Effacer les marqueurs
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="menu-wrap">
               <button
