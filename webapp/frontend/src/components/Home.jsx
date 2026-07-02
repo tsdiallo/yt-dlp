@@ -1,5 +1,12 @@
-import { useMemo, useRef } from 'react'
-import { streamUrl, getSeen, getPos, getDur } from '../api.js'
+import { useMemo, useRef, useState } from 'react'
+import { streamUrl, getSeen, getPos, getDur, getWatchlist } from '../api.js'
+
+const STATUS_LABELS = {
+  RELEASING: 'En cours',
+  FINISHED: 'Terminé',
+  NOT_YET_RELEASED: 'À venir',
+  HIATUS: 'En pause',
+}
 
 function Row({ title, children }) {
   const ref = useRef(null)
@@ -33,9 +40,10 @@ function SeriesCard({ series }) {
       >
         {!series.cover && <span className="card-fallback">▶</span>}
       </div>
-      <div className="card-title">{series.name}</div>
+      <div className="card-title">{series.meta?.title || series.name}</div>
       <div className="card-sub">
         {series.episodes.length} épisode{series.episodes.length > 1 ? 's' : ''}
+        {series.meta?.score ? ` · ★ ${series.meta.score / 10}` : ''}
       </div>
     </a>
   )
@@ -60,7 +68,39 @@ function ResumeCard({ ep, seriesName }) {
   )
 }
 
+const seriesMtime = (s) => Math.max(...s.episodes.map((e) => e.mtime || 0))
+
 export default function Home({ library }) {
+  const [query, setQuery] = useState('')
+  const [genre, setGenre] = useState('')
+  const [status, setStatus] = useState('')
+  const [sort, setSort] = useState('recent')
+
+  const genres = useMemo(() => {
+    const g = new Set()
+    for (const s of library || []) for (const x of s.meta?.genres || []) g.add(x)
+    return [...g].sort()
+  }, [library])
+
+  const filtering = query.trim() !== '' || genre !== '' || status !== ''
+
+  const filtered = useMemo(() => {
+    if (!library) return []
+    const q = query.trim().toLowerCase()
+    let list = library.filter((s) => {
+      if (q && !s.name.toLowerCase().includes(q) && !(s.meta?.title || '').toLowerCase().includes(q)) {
+        return false
+      }
+      if (genre && !(s.meta?.genres || []).includes(genre)) return false
+      if (status && s.meta?.status !== status) return false
+      return true
+    })
+    if (sort === 'alpha') list = [...list].sort((a, b) => a.name.localeCompare(b.name))
+    else if (sort === 'score') list = [...list].sort((a, b) => (b.meta?.score || 0) - (a.meta?.score || 0))
+    else list = [...list].sort((a, b) => seriesMtime(b) - seriesMtime(a))
+    return list
+  }, [library, query, genre, status, sort])
+
   const resume = useMemo(() => {
     if (!library) return []
     const seen = getSeen()
@@ -78,10 +118,13 @@ export default function Home({ library }) {
   const hero = useMemo(() => {
     if (!library?.length) return null
     // série la plus récente (dernier fichier ajouté)
-    return [...library].sort(
-      (a, b) => Math.max(...b.episodes.map((e) => e.mtime || 0)) - Math.max(...a.episodes.map((e) => e.mtime || 0)),
-    )[0]
+    return [...library].sort((a, b) => seriesMtime(b) - seriesMtime(a))[0]
   }, [library])
+
+  const watchlist = useMemo(
+    () => (library || []).filter((s) => getWatchlist().has(s.name)),
+    [library],
+  )
 
   if (library === null) {
     return <main className="page center-msg">Chargement…</main>
@@ -134,20 +177,71 @@ export default function Home({ library }) {
         </div>
       </div>
 
-      <div className="rows">
-        {resume.length > 0 && (
-          <Row title="Continuer la lecture">
-            {resume.map(({ ep, seriesName }) => (
-              <ResumeCard key={ep.path} ep={ep} seriesName={seriesName} />
+      <div className="lib-toolbar">
+        <input
+          className="lib-search"
+          placeholder="🔍  Rechercher dans ma bibliothèque…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select value={genre} onChange={(e) => setGenre(e.target.value)}>
+          <option value="">Tous les genres</option>
+          {genres.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Tous les statuts</option>
+          {Object.entries(STATUS_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="recent">Plus récents</option>
+          <option value="alpha">A → Z</option>
+          <option value="score">Meilleures notes</option>
+        </select>
+      </div>
+
+      {filtering ? (
+        <div className="page" style={{ paddingTop: 0 }}>
+          {filtered.length === 0 ? (
+            <div className="center-msg">Aucune série ne correspond.</div>
+          ) : (
+            <div className="series-grid">
+              {filtered.map((s) => (
+                <SeriesCard key={s.name} series={s} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rows">
+          {resume.length > 0 && (
+            <Row title="Continuer la lecture">
+              {resume.map(({ ep, seriesName }) => (
+                <ResumeCard key={ep.path} ep={ep} seriesName={seriesName} />
+              ))}
+            </Row>
+          )}
+          {watchlist.length > 0 && (
+            <Row title="Ma liste">
+              {watchlist.map((s) => (
+                <SeriesCard key={s.name} series={s} />
+              ))}
+            </Row>
+          )}
+          <Row title="Ma bibliothèque">
+            {filtered.map((s) => (
+              <SeriesCard key={s.name} series={s} />
             ))}
           </Row>
-        )}
-        <Row title="Ma bibliothèque">
-          {library.map((s) => (
-            <SeriesCard key={s.name} series={s} />
-          ))}
-        </Row>
-      </div>
+        </div>
+      )}
     </main>
   )
 }

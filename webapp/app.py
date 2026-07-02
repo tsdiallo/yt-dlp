@@ -11,11 +11,14 @@ Variables d'environnement :
     ANISTREAM_LANGS   langues de sous-titres, séparées par des virgules (défaut : fr,en)
 """
 
+import functools
 import json
 import mimetypes
 import os
 import re
 import shutil
+import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -40,7 +43,54 @@ MEDIA_DIR = Path(os.environ.get('ANISTREAM_MEDIA', WEBAPP_DIR / 'media')).resolv
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 SUB_LANGS = [x.strip() for x in os.environ.get('ANISTREAM_LANGS', 'fr,en').split(',') if x.strip()]
-HAS_FFMPEG = bool(shutil.which('ffmpeg'))
+FFMPEG = shutil.which('ffmpeg')
+HAS_FFMPEG = bool(FFMPEG)
+
+# données persistantes (hors du dossier de l'application si ANISTREAM_DATA est
+# défini, pour survivre aux mises à jour — utilisé par les installateurs)
+DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_FILE = DATA_DIR / 'anistream.db'
+db_lock = threading.Lock()
+
+
+def db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+with db_lock, db() as _conn:
+    _conn.execute('''CREATE TABLE IF NOT EXISTS downloads (
+        id TEXT PRIMARY KEY,
+        kind TEXT,
+        url TEXT,
+        series TEXT,
+        season INTEGER,
+        title TEXT,
+        status TEXT,
+        error TEXT,
+        created_at REAL,
+        finished_at REAL
+    )''')
+
+
+def db_record(job):
+    with db_lock, db() as conn:
+        conn.execute(
+            '''INSERT INTO downloads (id, kind, url, series, season, title, status, error, created_at, finished_at)
+               VALUES (:id, :kind, :url, :series, :season, :title, :status, :error, :created_at, :finished_at)
+               ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title, status = excluded.status,
+                 error = excluded.error, finished_at = excluded.finished_at''',
+            {
+                'id': job['id'], 'kind': job.get('kind', 'manual'), 'url': job['url'],
+                'series': job['series'], 'season': job.get('season'),
+                'title': job.get('title'), 'status': job['status'],
+                'error': job.get('error'), 'created_at': job.get('created_at'),
+                'finished_at': job.get('finished_at'),
+            })
 
 VIDEO_EXTS = {'.mp4', '.mkv', '.webm', '.m4v', '.mov'}
 THUMB_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -66,6 +116,35 @@ class DownloadRequest(BaseModel):
 
 def sanitize_name(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip() or 'Sans titre'
+
+
+def notify(title, message):
+    """Notification système (toast Windows, bannière macOS, notify-send Linux)."""
+    try:
+        if sys.platform == 'win32':
+            script = (
+                "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
+                "ContentType = WindowsRuntime] | Out-Null; "
+                "$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+                "[Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+                "$texts = $xml.GetElementsByTagName('text'); "
+                f"$texts.Item(0).AppendChild($xml.CreateTextNode('{title.replace(chr(39), chr(39) * 2)}')) | Out-Null; "
+                f"$texts.Item(1).AppendChild($xml.CreateTextNode('{message.replace(chr(39), chr(39) * 2)}')) | Out-Null; "
+                "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml; "
+                "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+                "'AniStream').Show($toast)"
+            )
+            encoded = __import__('base64').b64encode(script.encode('utf-16-le')).decode()
+            subprocess.Popen(['powershell', '-NoProfile', '-EncodedCommand', encoded],
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        elif sys.platform == 'darwin':
+            m, t = message.replace('"', '\\"'), title.replace('"', '\\"')
+            subprocess.Popen(['osascript', '-e',
+                              f'display notification "{m}" with title "{t}"'])
+        elif shutil.which('notify-send'):
+            subprocess.Popen(['notify-send', title, message])
+    except Exception:
+        pass
 
 
 def series_meta_dir(series_name):
@@ -165,6 +244,49 @@ def ensure_metadata(series_name):
             pass
 
 
+def read_intro_raw(sdir):
+    try:
+        data = json.loads((sdir / '.anistream' / 'intro.json').read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def load_intro(sdir):
+    data = read_intro_raw(sdir)
+    if isinstance(data.get('start'), (int, float)) and isinstance(data.get('end'), (int, float)) \
+            and data['end'] > data['start']:
+        return {'start': float(data['start']), 'end': float(data['end'])}
+    return None
+
+
+class IntroRequest(BaseModel):
+    start: float | None = None
+    end: float | None = None
+
+
+@app.post('/api/series/{name}/intro')
+def set_intro(name: str, req: IntroRequest):
+    """Définit les marqueurs d'intro de la série (start/end en secondes).
+    Les champs absents conservent la valeur existante ; start et end à null effacent."""
+    sdir = MEDIA_DIR / sanitize_name(name)
+    if not sdir.is_dir():
+        raise HTTPException(404, 'Série introuvable')
+    mdir = sdir / '.anistream'
+    intro_file = mdir / 'intro.json'
+    if req.start is None and req.end is None:
+        intro_file.unlink(missing_ok=True)
+        return {'intro': None}
+    current = read_intro_raw(sdir)
+    if req.start is not None:
+        current['start'] = max(0.0, req.start)
+    if req.end is not None:
+        current['end'] = max(0.0, req.end)
+    mdir.mkdir(parents=True, exist_ok=True)
+    intro_file.write_text(json.dumps(current))
+    return {'intro': load_intro(sdir) or current}
+
+
 class MetadataRequest(BaseModel):
     query: str | None = None
 
@@ -238,11 +360,21 @@ def build_ydl_opts(req: DownloadRequest, job_id):
     return opts
 
 
+def archive_count(series_name):
+    try:
+        return len(archive_file(series_name).read_text().splitlines())
+    except OSError:
+        return 0
+
+
 def run_download(job_id, req: DownloadRequest):
     with download_slots:
         with jobs_lock:
             jobs[job_id]['status'] = 'downloading'
+            kind = jobs[job_id].get('kind', 'manual')
+            db_record(jobs[job_id])
         ensure_metadata(req.series)
+        before = archive_count(req.series) if kind == 'watch' else 0
         try:
             with yt_dlp.YoutubeDL(build_ydl_opts(req, job_id)) as ydl:
                 retcode = ydl.download([req.url])
@@ -258,6 +390,15 @@ def run_download(job_id, req: DownloadRequest):
             with jobs_lock:
                 jobs[job_id]['status'] = 'error'
                 jobs[job_id]['error'] = str(e)
+        with jobs_lock:
+            jobs[job_id]['finished_at'] = time.time()
+            db_record(jobs[job_id])
+        if kind == 'watch':
+            new_count = archive_count(req.series) - before
+            if new_count > 0:
+                notify('AniStream',
+                       f'{req.series} : {new_count} nouvel épisode téléchargé' if new_count == 1
+                       else f'{req.series} : {new_count} nouveaux épisodes téléchargés')
 
 
 @app.post('/api/download')
@@ -287,10 +428,6 @@ def clear_downloads():
 # Suivi automatique de séries
 # ---------------------------------------------------------------------------
 
-# stocké hors du dossier de l'application si ANISTREAM_DATA est défini,
-# pour survivre aux mises à jour (utilisé par l'installateur Windows)
-DATA_DIR = Path(os.environ.get('ANISTREAM_DATA', WEBAPP_DIR)).resolve()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 WATCHES_FILE = DATA_DIR / 'watches.json'
 CHECK_HOURS = float(os.environ.get('ANISTREAM_CHECK_HOURS', '6'))
 
@@ -326,9 +463,36 @@ def enqueue_download(req: DownloadRequest, kind='manual'):
             'speed': None,
             'eta': None,
             'error': None,
+            'created_at': time.time(),
+            'finished_at': None,
         }
+        db_record(jobs[job_id])
     threading.Thread(target=run_download, args=(job_id, req), daemon=True).start()
     return jobs[job_id]
+
+
+@app.get('/api/history')
+def download_history(limit: int = 50):
+    with db_lock, db() as conn:
+        rows = conn.execute(
+            'SELECT * FROM downloads ORDER BY created_at DESC LIMIT ?',
+            (max(1, min(limit, 200)),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def recover_interrupted_downloads():
+    """Relance au démarrage les téléchargements coupés par un arrêt du serveur."""
+    with db_lock, db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM downloads WHERE status IN ('queued', 'downloading', 'processing')"
+        ).fetchall()
+        conn.execute(
+            "UPDATE downloads SET status = 'interrupted' "
+            "WHERE status IN ('queued', 'downloading', 'processing')")
+    for r in rows:
+        enqueue_download(
+            DownloadRequest(url=r['url'], series=r['series'], season=r['season']),
+            kind=r['kind'] or 'manual')
 
 
 def check_watch(watch):
@@ -400,6 +564,7 @@ def watch_loop():
                 pass
 
 
+recover_interrupted_downloads()
 threading.Thread(target=watch_loop, daemon=True).start()
 
 
@@ -541,6 +706,7 @@ def library():
                 'name': sdir.name,
                 'cover': (meta or {}).get('cover') or next((e['thumb'] for e in episodes if e['thumb']), None),
                 'meta': meta,
+                'intro': load_intro(sdir),
                 'episodes': episodes,
             })
     return series_list
@@ -553,19 +719,42 @@ def safe_media_path(rel_path):
     return target
 
 
-@app.delete('/api/media/{rel_path:path}')
-def delete_episode(rel_path: str):
-    video = safe_media_path(rel_path)
+def _delete_episode_files(video):
+    """Supprime un épisode et ses fichiers associés ; renvoie les octets libérés."""
+    freed = 0
     prefix = video.stem + '.'
     for f in list(video.parent.iterdir()):
         if f == video or f.name.startswith(prefix):
+            freed += f.stat().st_size
             f.unlink()
     # supprime les dossiers devenus vides (saison puis série)
     parent = video.parent
     while parent != MEDIA_DIR and not any(parent.iterdir()):
         parent.rmdir()
         parent = parent.parent
-    return {'ok': True}
+    return freed
+
+
+@app.delete('/api/media/{rel_path:path}')
+def delete_episode(rel_path: str):
+    freed = _delete_episode_files(safe_media_path(rel_path))
+    return {'ok': True, 'freed': freed}
+
+
+class DeleteBatchRequest(BaseModel):
+    paths: list[str]
+
+
+@app.post('/api/media/delete-batch')
+def delete_batch(req: DeleteBatchRequest):
+    freed = deleted = 0
+    for rel_path in req.paths[:1000]:
+        try:
+            freed += _delete_episode_files(safe_media_path(rel_path))
+            deleted += 1
+        except HTTPException:
+            pass  # déjà supprimé ou chemin invalide : on continue
+    return {'deleted': deleted, 'freed': freed}
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +798,228 @@ def stream(rel_path: str, request: Request):
     if status == 206:
         headers['Content-Range'] = f'bytes {start}-{end}/{size}'
     return StreamingResponse(iter_file(), status_code=status, headers=headers, media_type=content_type)
+
+
+# ---------------------------------------------------------------------------
+# Sous-titres générés par IA (faster-whisper, dépendance optionnelle)
+# ---------------------------------------------------------------------------
+
+WHISPER_MODEL_NAME = os.environ.get('ANISTREAM_WHISPER_MODEL', 'small')
+_whisper_model = None
+_whisper_lock = threading.Lock()
+
+
+def get_whisper_model():
+    global _whisper_model
+    from faster_whisper import WhisperModel
+    with _whisper_lock:
+        if _whisper_model is None:
+            _whisper_model = WhisperModel(WHISPER_MODEL_NAME, device='auto', compute_type='auto')
+        return _whisper_model
+
+
+def _vtt_ts(t):
+    h, rem = divmod(max(0.0, t), 3600)
+    m, s = divmod(rem, 60)
+    return f'{int(h):02d}:{int(m):02d}:{s:06.3f}'
+
+
+def run_subtitle_job(job_id, file, language):
+    with jobs_lock:
+        jobs[job_id]['status'] = 'processing'
+        db_record(jobs[job_id])
+    try:
+        model = get_whisper_model()
+        try:
+            segments, info = model.transcribe(str(file), language=language, vad_filter=True)
+        except (IndexError, ValueError) as e:
+            raise RuntimeError(f'transcription impossible (fichier sans piste audio ?) : {e}')
+        duration = info.duration or 0
+        lines = ['WEBVTT', '']
+        for seg in segments:
+            lines += [f'{_vtt_ts(seg.start)} --> {_vtt_ts(seg.end)}', seg.text.strip(), '']
+            if duration:
+                with jobs_lock:
+                    jobs[job_id]['progress'] = round(min(99.0, seg.end / duration * 100), 1)
+        out = Path(str(file.with_suffix('')) + f'.{info.language}.vtt')
+        out.write_text('\n'.join(lines), encoding='utf-8')
+        with jobs_lock:
+            jobs[job_id]['status'] = 'done'
+            jobs[job_id]['progress'] = 100.0
+    except Exception as e:
+        with jobs_lock:
+            jobs[job_id]['status'] = 'error'
+            jobs[job_id]['error'] = str(e)
+    with jobs_lock:
+        jobs[job_id]['finished_at'] = time.time()
+        db_record(jobs[job_id])
+
+
+class SubtitleRequest(BaseModel):
+    path: str
+    language: str | None = None  # None = détection automatique
+
+
+@app.post('/api/subtitle')
+def generate_subtitle(req: SubtitleRequest):
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        raise HTTPException(
+            501,
+            "Sous-titres IA non installés. Installez-les avec : pip install faster-whisper "
+            '(puis redémarrez AniStream). Le premier lancement télécharge le modèle.')
+    file = safe_media_path(req.path)
+    job_id = uuid.uuid4().hex[:12]
+    with jobs_lock:
+        jobs[job_id] = {
+            'id': job_id,
+            'kind': 'subtitle',
+            'url': req.path,
+            'series': file.parent.name,
+            'season': None,
+            'title': f'Sous-titres IA : {file.stem}',
+            'status': 'queued',
+            'progress': 0.0,
+            'speed': None,
+            'eta': None,
+            'error': None,
+            'created_at': time.time(),
+            'finished_at': None,
+        }
+        db_record(jobs[job_id])
+    threading.Thread(target=run_subtitle_job, args=(job_id, file, req.language), daemon=True).start()
+    return jobs[job_id]
+
+
+# ---------------------------------------------------------------------------
+# Statistiques
+# ---------------------------------------------------------------------------
+
+@app.get('/api/stats')
+def stats():
+    per_series, total_size = [], 0
+    for sdir in sorted(MEDIA_DIR.iterdir(), key=lambda p: p.name.lower()):
+        if not sdir.is_dir():
+            continue
+        size = episodes = 0
+        for f in sdir.rglob('*'):
+            if f.is_file():
+                size += f.stat().st_size
+                if f.suffix.lower() in VIDEO_EXTS:
+                    episodes += 1
+        if episodes:
+            per_series.append({'name': sdir.name, 'size': size, 'episodes': episodes})
+            total_size += size
+    per_series.sort(key=lambda s: s['size'], reverse=True)
+    with db_lock, db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done, "
+            "SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS failed "
+            'FROM downloads').fetchone()
+    with watches_lock:
+        watch_count = len(watches)
+    return {
+        'series': per_series,
+        'total_size': total_size,
+        'downloads': {'total': row['total'], 'done': row['done'] or 0, 'failed': row['failed'] or 0},
+        'watch_count': watch_count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Transcodage à la volée (secours quand le navigateur ne peut pas lire)
+# ---------------------------------------------------------------------------
+
+def _ffmpeg_list(flag, marker):
+    try:
+        out = subprocess.run([FFMPEG, '-hide_banner', flag],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return set()
+    names = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith(marker) and len(line.split()) >= 2:
+            names.add(line.split()[1])
+    return names
+
+
+@functools.lru_cache(maxsize=1)
+def transcode_profile():
+    """Choisit le meilleur profil selon les encodeurs ffmpeg disponibles."""
+    if not FFMPEG:
+        return None
+    venc = _ffmpeg_list('-encoders', 'V')
+    aenc = _ffmpeg_list('-encoders', 'A')
+    audio = (['-c:a', 'aac', '-b:a', '160k'] if 'aac' in aenc
+             else ['-c:a', 'libopus'] if 'libopus' in aenc
+             else ['-c:a', 'libvorbis'] if 'libvorbis' in aenc
+             else ['-an'])
+    if 'libx264' in venc:
+        return {
+            'args': ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                     *audio, '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                     '-f', 'mp4'],
+            'mime': 'video/mp4',
+        }
+    if 'libvpx' in venc:
+        args = ['-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M']
+        args += audio if audio != ['-c:a', 'aac', '-b:a', '160k'] else ['-an']
+        return {'args': [*args, '-f', 'webm'], 'mime': 'video/webm'}
+    return None
+
+
+@app.get('/api/transcode/{rel_path:path}')
+def transcode(rel_path: str, t: float = 0):
+    file = safe_media_path(rel_path)
+    profile = transcode_profile()
+    if profile is None:
+        raise HTTPException(501, 'ffmpeg indisponible : transcodage impossible')
+    cmd = [FFMPEG, '-v', 'error', '-nostdin']
+    if t > 0:
+        cmd += ['-ss', f'{t:.3f}']
+    cmd += ['-i', str(file), *profile['args'], 'pipe:1']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def gen():
+        try:
+            while chunk := proc.stdout.read(64 * 1024):
+                yield chunk
+        finally:
+            proc.kill()
+
+    return StreamingResponse(gen(), media_type=profile['mime'],
+                             headers={'Cache-Control': 'no-store'})
+
+
+@app.get('/api/mediainfo/{rel_path:path}')
+def mediainfo(rel_path: str):
+    """Durée du fichier (pour la barre de lecture en mode transcodage)."""
+    file = safe_media_path(rel_path)
+    duration = None
+    ffprobe = shutil.which('ffprobe')
+    if ffprobe:
+        try:
+            out = subprocess.run(
+                [ffprobe, '-v', 'error', '-show_entries', 'format=duration',
+                 '-of', 'csv=p=0', str(file)],
+                capture_output=True, text=True, timeout=15).stdout.strip()
+            duration = float(out)
+        except (ValueError, subprocess.SubprocessError):
+            pass
+    if duration is None and FFMPEG:
+        # pas de ffprobe : on lit la ligne « Duration: » de ffmpeg -i
+        try:
+            err = subprocess.run([FFMPEG, '-hide_banner', '-i', str(file)],
+                                 capture_output=True, text=True, timeout=15).stderr
+            m = re.search(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)', err)
+            if m:
+                duration = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        except subprocess.SubprocessError:
+            pass
+    return {'duration': duration, 'transcodable': transcode_profile() is not None}
 
 
 # ---------------------------------------------------------------------------
