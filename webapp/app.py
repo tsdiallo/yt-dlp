@@ -118,6 +118,35 @@ def sanitize_name(name):
     return re.sub(r'[\\/:*?"<>|]', '_', name).strip() or 'Sans titre'
 
 
+def notify(title, message):
+    """Notification système (toast Windows, bannière macOS, notify-send Linux)."""
+    try:
+        if sys.platform == 'win32':
+            script = (
+                "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
+                "ContentType = WindowsRuntime] | Out-Null; "
+                "$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+                "[Windows.UI.Notifications.ToastTemplateType]::ToastText02); "
+                "$texts = $xml.GetElementsByTagName('text'); "
+                f"$texts.Item(0).AppendChild($xml.CreateTextNode('{title.replace(chr(39), chr(39) * 2)}')) | Out-Null; "
+                f"$texts.Item(1).AppendChild($xml.CreateTextNode('{message.replace(chr(39), chr(39) * 2)}')) | Out-Null; "
+                "$toast = New-Object Windows.UI.Notifications.ToastNotification $xml; "
+                "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+                "'AniStream').Show($toast)"
+            )
+            encoded = __import__('base64').b64encode(script.encode('utf-16-le')).decode()
+            subprocess.Popen(['powershell', '-NoProfile', '-EncodedCommand', encoded],
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        elif sys.platform == 'darwin':
+            m, t = message.replace('"', '\\"'), title.replace('"', '\\"')
+            subprocess.Popen(['osascript', '-e',
+                              f'display notification "{m}" with title "{t}"'])
+        elif shutil.which('notify-send'):
+            subprocess.Popen(['notify-send', title, message])
+    except Exception:
+        pass
+
+
 def series_meta_dir(series_name):
     return MEDIA_DIR / sanitize_name(series_name) / '.anistream'
 
@@ -331,12 +360,21 @@ def build_ydl_opts(req: DownloadRequest, job_id):
     return opts
 
 
+def archive_count(series_name):
+    try:
+        return len(archive_file(series_name).read_text().splitlines())
+    except OSError:
+        return 0
+
+
 def run_download(job_id, req: DownloadRequest):
     with download_slots:
         with jobs_lock:
             jobs[job_id]['status'] = 'downloading'
+            kind = jobs[job_id].get('kind', 'manual')
             db_record(jobs[job_id])
         ensure_metadata(req.series)
+        before = archive_count(req.series) if kind == 'watch' else 0
         try:
             with yt_dlp.YoutubeDL(build_ydl_opts(req, job_id)) as ydl:
                 retcode = ydl.download([req.url])
@@ -355,6 +393,12 @@ def run_download(job_id, req: DownloadRequest):
         with jobs_lock:
             jobs[job_id]['finished_at'] = time.time()
             db_record(jobs[job_id])
+        if kind == 'watch':
+            new_count = archive_count(req.series) - before
+            if new_count > 0:
+                notify('AniStream',
+                       f'{req.series} : {new_count} nouvel épisode téléchargé' if new_count == 1
+                       else f'{req.series} : {new_count} nouveaux épisodes téléchargés')
 
 
 @app.post('/api/download')
