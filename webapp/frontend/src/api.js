@@ -28,6 +28,18 @@ export const markSeen = (path) => {
   localStorage.setItem('anistream.seen', JSON.stringify([...s]))
 }
 
+export const toggleSeen = (path) => {
+  const s = getSeen()
+  if (s.has(path)) {
+    s.delete(path)
+    clearPos(path)
+  } else {
+    s.add(path)
+  }
+  localStorage.setItem('anistream.seen', JSON.stringify([...s]))
+  return s
+}
+
 export const savePos = (path, time, duration) => {
   localStorage.setItem('anistream.pos.' + path, String(time))
   if (duration) localStorage.setItem('anistream.dur.' + path, String(duration))
