@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, postJSON, fmtBytes, fmtHours, getSeen, getPos, getDur } from '../api.js'
+import { toast, confirmDialog } from '../ui.jsx'
 
 function Tile({ label, value, sub }) {
   return (
@@ -29,13 +30,19 @@ export default function Stats({ library, onLibraryChange }) {
       for (const ep of s.episodes) if (seen.has(ep.path)) paths.push(ep.path)
     }
     if (!paths.length) {
-      alert('Aucun épisode vu à supprimer.')
+      toast('Aucun épisode vu à supprimer', 'err')
       return
     }
     const where = seriesName ? `de « ${seriesName} »` : 'de toute la bibliothèque'
-    if (!confirm(`Supprimer du disque les ${paths.length} épisode(s) déjà vu(s) ${where} ?`)) return
+    const ok = await confirmDialog({
+      title: 'Libérer de l\'espace ?',
+      message: `Les ${paths.length} épisode(s) déjà vu(s) ${where} seront supprimés du disque. Ils ne seront pas retéléchargés par les suivis.`,
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     const res = await postJSON('/api/media/delete-batch', { paths })
-    alert(`${res.deleted} épisode(s) supprimé(s), ${fmtBytes(res.freed)} libérés.`)
+    toast(`${res.deleted} épisode(s) supprimé(s) — ${fmtBytes(res.freed)} libérés`)
     onLibraryChange?.()
     refresh()
   }

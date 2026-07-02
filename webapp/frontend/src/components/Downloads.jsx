@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, postJSON, fmtSpeed } from '../api.js'
+import { toast, confirmDialog } from '../ui.jsx'
 
 const STATUS = {
   queued: ["En file d'attente", 'wait'],
@@ -7,6 +8,7 @@ const STATUS = {
   processing: ['Traitement (ffmpeg)…', 'active'],
   done: ['Terminé ✓', 'ok'],
   error: ['Échec', 'err'],
+  cancelled: ['Annulé', 'wait'],
 }
 
 const ago = (ts) => {
@@ -50,8 +52,9 @@ function Watches() {
       setSeries('')
       setSeason('')
       refresh()
+      toast('Série suivie ✓ — première vérification lancée')
     } catch (err) {
-      alert('Erreur : ' + err.message)
+      toast(err.message, 'err')
     }
   }
 
@@ -88,6 +91,7 @@ function Watches() {
                   onClick={async () => {
                     await postJSON(`/api/watches/${w.id}/check`, {})
                     refresh()
+                    toast('Vérification lancée')
                   }}
                 >
                   Vérifier
@@ -95,9 +99,16 @@ function Watches() {
                 <button
                   className="btn ghost small"
                   onClick={async () => {
-                    if (!confirm(`Ne plus suivre « ${w.series} » ? (les fichiers sont conservés)`)) return
+                    const ok = await confirmDialog({
+                      title: `Ne plus suivre « ${w.series} » ?`,
+                      message: 'Les épisodes déjà téléchargés sont conservés.',
+                      confirmLabel: 'Ne plus suivre',
+                      danger: true,
+                    })
+                    if (!ok) return
                     await api('/api/watches/' + w.id, { method: 'DELETE' })
                     refresh()
+                    toast('Suivi retiré')
                   }}
                 >
                   ✕
@@ -118,6 +129,7 @@ const HISTORY_STATUS = {
   done: ['terminé', 'ok'],
   error: ['échec', 'err'],
   interrupted: ['interrompu', 'wait'],
+  cancelled: ['annulé', 'wait'],
 }
 
 function History() {
@@ -209,11 +221,17 @@ export default function Downloads({ onLibraryChange }) {
         season: season ? parseInt(season, 10) : null,
       })
       setUrl('')
+      toast('Téléchargement lancé')
     } catch (err) {
-      alert('Erreur : ' + err.message)
+      toast(err.message, 'err')
     } finally {
       setBusy(false)
     }
+  }
+
+  const cancelJob = async (j) => {
+    await postJSON(`/api/downloads/${j.id}/cancel`, {})
+    toast('Téléchargement annulé')
   }
 
   const hasFinished = jobs.some((j) => ['done', 'error'].includes(j.status))
@@ -276,7 +294,14 @@ export default function Downloads({ onLibraryChange }) {
                   {j.kind === 'subtitle' && <span className="pill">IA</span>}
                   {j.title || j.url}
                 </span>
-                <span className={'job-status ' + cls}>{label}</span>
+                <span className="job-right">
+                  <span className={'job-status ' + cls}>{label}</span>
+                  {['queued', 'downloading', 'processing'].includes(j.status) && (
+                    <button className="icon-btn job-cancel" title="Annuler" onClick={() => cancelJob(j)}>
+                      ✕
+                    </button>
+                  )}
+                </span>
               </div>
               <div className="job-sub">
                 {j.series}

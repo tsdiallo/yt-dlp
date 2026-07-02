@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { api, postJSON, fmtTime } from '../api.js'
+import { api, postJSON, fmtTime, streamUrl } from '../api.js'
+import { toast } from '../ui.jsx'
 
 function Result({ result, defaultSeries, seriesNames }) {
   const [open, setOpen] = useState(false)
@@ -17,8 +18,9 @@ function Result({ result, defaultSeries, seriesNames }) {
         season: season ? parseInt(season, 10) : null,
       })
       setState('done')
+      toast('Téléchargement lancé — suivi dans l\'onglet Téléchargements')
     } catch (err) {
-      alert('Erreur : ' + err.message)
+      toast(err.message, 'err')
       setState('idle')
     }
   }
@@ -32,8 +34,9 @@ function Result({ result, defaultSeries, seriesNames }) {
         season: season ? parseInt(season, 10) : null,
       })
       setState('followed')
+      toast('Série suivie : les nouveaux épisodes arriveront tout seuls')
     } catch (err) {
-      alert('Erreur : ' + err.message)
+      toast(err.message, 'err')
       setState('idle')
     }
   }
@@ -114,6 +117,19 @@ export default function Search({ library }) {
 
   const seriesNames = useMemo(() => (library || []).map((s) => s.name), [library])
 
+  // recherche unifiée : correspondances instantanées dans la bibliothèque locale
+  const localMatches = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (needle.length < 2) return []
+    return (library || [])
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(needle) ||
+          (s.meta?.title || '').toLowerCase().includes(needle),
+      )
+      .slice(0, 8)
+  }, [library, q])
+
   const bySite = useMemo(() => {
     const map = new Map()
     for (const r of data?.results || []) {
@@ -155,6 +171,26 @@ export default function Search({ library }) {
           {busy ? 'Recherche…' : 'Rechercher'}
         </button>
       </form>
+
+      {localMatches.length > 0 && (
+        <section className="result-group">
+          <h2>
+            Dans ma bibliothèque <span className="count">{localMatches.length}</span>
+          </h2>
+          <div className="local-matches">
+            {localMatches.map((s) => (
+              <a key={s.name} className="local-match" href={'#/series/' + encodeURIComponent(s.name)}>
+                <span
+                  className="local-cover"
+                  style={s.cover ? { backgroundImage: `url("${streamUrl(s.cover)}")` } : undefined}
+                />
+                <span className="local-name">{s.meta?.title || s.name}</span>
+                <span className="local-count">{s.episodes.length} ép.</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {busy && <div className="center-msg pulse">Interrogation de tous les sites…</div>}
       {error && <div className="center-msg">Erreur : {error}</div>}

@@ -8,7 +8,9 @@ import {
   getDur,
   getWatchlist,
   toggleWatchlist,
+  toggleSeen,
 } from '../api.js'
+import { toast, confirmDialog, promptDialog } from '../ui.jsx'
 
 const STATUS_FR = {
   RELEASING: 'En cours de diffusion',
@@ -35,19 +37,23 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
   const [descOpen, setDescOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [inList, setInList] = useState(() => getWatchlist().has(name))
+  const [, bumpSeen] = useState(0) // re-rendu après vu/non-vu manuel
 
   const refreshMeta = async () => {
-    const query = prompt(
-      'Rechercher sur AniList (laisser tel quel ou corriger le titre) :',
-      series?.meta?.title || name,
-    )
+    const query = await promptDialog({
+      title: 'Métadonnées AniList',
+      message: 'Titre à rechercher (corrige-le si l\'affiche ne correspond pas) :',
+      defaultValue: series?.meta?.title || name,
+      confirmLabel: 'Rechercher',
+    })
     if (query === null) return
     setRefreshing(true)
     try {
       await postJSON('/api/series/' + encodeURIComponent(name) + '/metadata', { query })
       onLibraryChange()
+      toast('Métadonnées mises à jour')
     } catch (err) {
-      alert('Erreur : ' + err.message)
+      toast(err.message, 'err')
     } finally {
       setRefreshing(false)
     }
@@ -70,10 +76,17 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
     series.episodes[0]
 
   const deleteEp = async (ep) => {
-    if (!confirm(`Supprimer « ${ep.title} » du disque ?`)) return
+    const ok = await confirmDialog({
+      title: 'Supprimer cet épisode ?',
+      message: `« ${ep.title} » sera supprimé du disque (sous-titres et miniature inclus).`,
+      confirmLabel: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     await api('/api/media/' + ep.path.split('/').map(encodeURIComponent).join('/'), {
       method: 'DELETE',
     })
+    toast('Épisode supprimé')
     onLibraryChange()
   }
 
@@ -132,16 +145,27 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
         )}
         <div className="season-bar">
           <h2>Épisodes</h2>
-          {seasons.length > 1 && (
-            <select value={seasonIdx} onChange={(e) => setSeasonIdx(Number(e.target.value))}>
-              {seasons.map(([sName], i) => (
-                <option key={sName || 'racine'} value={i}>
-                  {sName || 'Épisodes'}
-                </option>
-              ))}
-            </select>
+          {seasons.length > 1 ? (
+            <div className="season-tabs">
+              {seasons.map(([sName, eps], i) => {
+                const seenCount = eps.filter((e) => seen.has(e.path)).length
+                return (
+                  <button
+                    key={sName || 'racine'}
+                    className={'season-tab' + (i === Math.min(seasonIdx, seasons.length - 1) ? ' active' : '')}
+                    onClick={() => setSeasonIdx(i)}
+                  >
+                    {sName || 'Épisodes'}
+                    <span className="season-count">
+                      {seenCount}/{eps.length}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            seasonName && <span className="season-label">{seasonName}</span>
           )}
-          {seasons.length === 1 && seasonName && <span className="season-label">{seasonName}</span>}
         </div>
 
         <div className="ep-grid">
@@ -169,7 +193,16 @@ export default function SeriesDetail({ name, library, onLibraryChange }) {
                   <span className="ep-name" title={ep.title}>
                     {ep.title}
                   </span>
-                  {seen.has(ep.path) && <span className="ep-seen">✓</span>}
+                  <button
+                    className={'seen-toggle' + (seen.has(ep.path) ? ' on' : '')}
+                    title={seen.has(ep.path) ? 'Marquer non vu' : 'Marquer vu'}
+                    onClick={() => {
+                      toggleSeen(ep.path)
+                      bumpSeen((n) => n + 1)
+                    }}
+                  >
+                    ✓
+                  </button>
                   <button className="icon-btn" title="Supprimer" onClick={() => deleteEp(ep)}>
                     🗑
                   </button>

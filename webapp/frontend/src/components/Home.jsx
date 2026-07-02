@@ -1,5 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
-import { streamUrl, getSeen, getPos, getDur, getWatchlist } from '../api.js'
+import { streamUrl, getSeen, getPos, getDur, getWatchlist, toggleWatchlist } from '../api.js'
+import { toast } from '../ui.jsx'
+
+const NEW_DAYS = 7
+const isNew = (ep) => ep.mtime && Date.now() / 1000 - ep.mtime < NEW_DAYS * 86400
 
 const STATUS_LABELS = {
   RELEASING: 'En cours',
@@ -32,6 +36,11 @@ function Row({ title, children }) {
 }
 
 function SeriesCard({ series }) {
+  const [inList, setInList] = useState(() => getWatchlist().has(series.name))
+  const seen = getSeen()
+  const nextEp = series.episodes.find((e) => !seen.has(e.path)) || series.episodes[0]
+  const hasNew = series.episodes.some((e) => isNew(e) && !seen.has(e.path))
+
   return (
     <a className="card" href={'#/series/' + encodeURIComponent(series.name)}>
       <div
@@ -39,6 +48,36 @@ function SeriesCard({ series }) {
         style={series.cover ? { backgroundImage: `url("${streamUrl(series.cover)}")` } : undefined}
       >
         {!series.cover && <span className="card-fallback">▶</span>}
+        {hasNew && <span className="new-badge">NOUVEAU</span>}
+        <div className="card-hover">
+          <div className="card-hover-actions">
+            <button
+              className="round-btn play"
+              title="Lecture"
+              onClick={(e) => {
+                e.preventDefault()
+                location.hash = '#/watch/' + encodeURIComponent(nextEp.path)
+              }}
+            >
+              ▶
+            </button>
+            <button
+              className={'round-btn' + (inList ? ' on' : '')}
+              title={inList ? 'Retirer de ma liste' : 'Ajouter à ma liste'}
+              onClick={(e) => {
+                e.preventDefault()
+                const now = toggleWatchlist(series.name).has(series.name)
+                setInList(now)
+                toast(now ? 'Ajouté à ma liste' : 'Retiré de ma liste')
+              }}
+            >
+              {inList ? '✓' : '+'}
+            </button>
+          </div>
+          {series.meta?.genres?.length > 0 && (
+            <div className="card-hover-genres">{series.meta.genres.slice(0, 3).join(' · ')}</div>
+          )}
+        </div>
       </div>
       <div className="card-title">{series.meta?.title || series.name}</div>
       <div className="card-sub">
@@ -49,7 +88,32 @@ function SeriesCard({ series }) {
   )
 }
 
-function ResumeCard({ ep, seriesName }) {
+function SkeletonHome() {
+  return (
+    <main className="home">
+      <div className="hero skeleton-hero">
+        <div className="hero-fade" />
+      </div>
+      <div className="rows" style={{ marginTop: '3vh' }}>
+        <section className="row">
+          <h2>
+            <span className="skeleton-line" style={{ width: 160 }} />
+          </h2>
+          <div className="row-scroller">
+            {Array.from({ length: 7 }, (_, i) => (
+              <div key={i} className="card">
+                <div className="card-img poster skeleton" />
+                <div className="skeleton-line" style={{ width: '80%', marginTop: 8 }} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
+function ResumeCard({ ep, seriesName, isNew: showNew }) {
   const pct = getDur(ep.path) ? Math.min(100, (getPos(ep.path) / getDur(ep.path)) * 100) : 0
   return (
     <a className="card wide" href={'#/watch/' + encodeURIComponent(ep.path)}>
@@ -58,9 +122,12 @@ function ResumeCard({ ep, seriesName }) {
         style={ep.thumb ? { backgroundImage: `url("${streamUrl(ep.thumb)}")` } : undefined}
       >
         {!ep.thumb && <span className="card-fallback">▶</span>}
-        <div className="card-progress">
-          <div style={{ width: pct + '%' }} />
-        </div>
+        {showNew && <span className="new-badge">NOUVEAU</span>}
+        {pct > 0 && (
+          <div className="card-progress">
+            <div style={{ width: pct + '%' }} />
+          </div>
+        )}
       </div>
       <div className="card-title">{ep.title}</div>
       <div className="card-sub">{seriesName}</div>
@@ -126,8 +193,20 @@ export default function Home({ library }) {
     [library],
   )
 
+  const newEpisodes = useMemo(() => {
+    if (!library) return []
+    const seen = getSeen()
+    const items = []
+    for (const s of library) {
+      for (const ep of s.episodes) {
+        if (isNew(ep) && !seen.has(ep.path)) items.push({ ep, seriesName: s.name })
+      }
+    }
+    return items.sort((a, b) => (b.ep.mtime || 0) - (a.ep.mtime || 0)).slice(0, 20)
+  }, [library])
+
   if (library === null) {
-    return <main className="page center-msg">Chargement…</main>
+    return <SkeletonHome />
   }
 
   if (!library.length) {
@@ -221,6 +300,13 @@ export default function Home({ library }) {
         </div>
       ) : (
         <div className="rows">
+          {newEpisodes.length > 0 && (
+            <Row title="Nouveaux épisodes">
+              {newEpisodes.map(({ ep, seriesName }) => (
+                <ResumeCard key={ep.path} ep={ep} seriesName={seriesName} isNew />
+              ))}
+            </Row>
+          )}
           {resume.length > 0 && (
             <Row title="Continuer la lecture">
               {resume.map(({ ep, seriesName }) => (

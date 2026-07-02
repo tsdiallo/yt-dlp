@@ -7,6 +7,7 @@ import Player from './components/Player.jsx'
 import Search from './components/Search.jsx'
 import Downloads from './components/Downloads.jsx'
 import Stats from './components/Stats.jsx'
+import { UIHost } from './ui.jsx'
 
 function parseHash() {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''))
@@ -46,6 +47,18 @@ export default function App() {
     track('page', { page: route.page })
   }, [route.page])
 
+  // raccourci « / » : recherche unifiée depuis n'importe quelle page
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+        e.preventDefault()
+        go('search')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   useEffect(() => {
     const tick = async () => {
       try {
@@ -61,11 +74,17 @@ export default function App() {
   }, [])
 
   if (route.page === 'watch') {
-    return <Player path={route.arg} library={library} onLibraryChange={refreshLibrary} />
+    return (
+      <>
+        <UIHost />
+        <Player path={route.arg} library={library} onLibraryChange={refreshLibrary} />
+      </>
+    )
   }
 
   return (
     <>
+      <UIHost />
       <TopBar page={route.page} activeJobs={activeJobs} />
       {route.page === 'home' && <Home library={library} />}
       {route.page === 'series' && (

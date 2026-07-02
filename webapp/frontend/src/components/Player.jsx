@@ -12,10 +12,23 @@ import {
   markSeen,
 } from '../api.js'
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+import { toast } from '../ui.jsx'
 
-const transcodeUrl = (path, t) =>
-  '/api/transcode/' + path.split('/').map(encodeURIComponent).join('/') + (t > 0 ? `?t=${t}` : '')
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const SUB_SIZES = [
+  ['sm', 'A', 'Petits'],
+  ['md', 'A', 'Normaux'],
+  ['lg', 'A', 'Grands'],
+]
+
+const encodePath = (path) => path.split('/').map(encodeURIComponent).join('/')
+
+const transcodeUrl = (path, t, audio = -1) => {
+  const params = []
+  if (t > 0) params.push(`t=${t}`)
+  if (audio >= 0) params.push(`audio=${audio}`)
+  return '/api/transcode/' + encodePath(path) + (params.length ? '?' + params.join('&') : '')
+}
 
 export default function Player({ path, library, onLibraryChange }) {
   const videoRef = useRef(null)
@@ -39,7 +52,11 @@ export default function Player({ path, library, onLibraryChange }) {
   // mode transcodage : null = lecture directe, sinon décalage de départ (s)
   const [tcOffset, setTcOffset] = useState(null)
   const [tcDuration, setTcDuration] = useState(null)
+  const [tcAudio, setTcAudio] = useState(-1)
   const [introSkipped, setIntroSkipped] = useState(false)
+  const [audioTracks, setAudioTracks] = useState([])
+  const [subSize, setSubSize] = useState(() => localStorage.getItem('anistream.subsize') || 'md')
+  const [preview, setPreview] = useState(null) // {x, t} au survol de la seekbar
 
   const { ep, series, next } = useMemo(() => {
     if (!library) return {}
@@ -54,11 +71,20 @@ export default function Player({ path, library, onLibraryChange }) {
   useEffect(() => {
     setTcOffset(null)
     setTcDuration(null)
+    setTcAudio(-1)
     setError(null)
     setTime(0)
     setDuration(0)
     setCountdown(null)
     setIntroSkipped(false)
+    setPreview(null)
+    setAudioTracks([])
+    api('/api/mediainfo/' + encodePath(path))
+      .then((info) => {
+        setAudioTracks(info.audio_tracks || [])
+        if (info.duration) setTcDuration(info.duration)
+      })
+      .catch(() => {})
     if (series) track('play', { series: series.name })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
@@ -123,7 +149,7 @@ export default function Player({ path, library, onLibraryChange }) {
 
   const switchToTranscode = useCallback(async () => {
     try {
-      const info = await api('/api/mediainfo/' + path.split('/').map(encodeURIComponent).join('/'))
+      const info = await api('/api/mediainfo/' + encodePath(path))
       if (!info.transcodable) {
         setError('Impossible de lire cette vidéo (codec non supporté, et ffmpeg est indisponible)')
         return
@@ -136,6 +162,19 @@ export default function Player({ path, library, onLibraryChange }) {
       setError('Impossible de lire cette vidéo')
     }
   }, [path])
+
+  const selectAudioTrack = useCallback(
+    (index) => {
+      // le changement de piste audio passe par le transcodage (-map ffmpeg)
+      setTcAudio(index)
+      setTcOffset(tcOffset !== null ? tcOffset + (videoRef.current?.currentTime || 0)
+        : videoRef.current?.currentTime || 0)
+      setTime(0)
+      setMenu(null)
+      toast(`Piste audio ${index + 1} sélectionnée`)
+    },
+    [tcOffset],
+  )
 
   // clavier : espace/K lecture, ←→/J/L ±10s, ↑↓ volume, M muet, F plein écran
   useEffect(() => {
@@ -288,14 +327,14 @@ export default function Player({ path, library, onLibraryChange }) {
   return (
     <div
       ref={shellRef}
-      className={'player' + (controlsVisible ? '' : ' hide-cursor')}
+      className={'player sub-' + subSize + (controlsVisible ? '' : ' hide-cursor')}
       onPointerMove={showControls}
       onClick={() => setMenu(null)}
     >
       <video
-        key={inTc ? 'tc-' + tcOffset : 'direct'}
+        key={inTc ? `tc-${tcOffset}-${tcAudio}` : 'direct'}
         ref={videoRef}
-        src={inTc ? transcodeUrl(ep.path, tcOffset) : streamUrl(ep.path)}
+        src={inTc ? transcodeUrl(ep.path, tcOffset, tcAudio) : streamUrl(ep.path)}
         poster={ep.thumb ? streamUrl(ep.thumb) : undefined}
         autoPlay
         crossOrigin="anonymous"
@@ -381,7 +420,31 @@ export default function Player({ path, library, onLibraryChange }) {
 
         <div className="player-bottom" onClick={(e) => e.stopPropagation()}>
           {effDuration > 0 && (
-            <div className="seekbar" ref={seekbarRef} onPointerDown={onSeekDown}>
+            <div
+              className="seekbar"
+              ref={seekbarRef}
+              onPointerDown={onSeekDown}
+              onPointerMove={(e) => {
+                const bar = seekbarRef.current
+                if (!bar || !effDuration) return
+                const rect = bar.getBoundingClientRect()
+                const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                setPreview({ x: e.clientX - rect.left, t: frac * effDuration })
+              }}
+              onPointerLeave={() => setPreview(null)}
+            >
+              {preview && (
+                <div className="seek-preview" style={{ left: preview.x }}>
+                  <img
+                    src={'/api/preview/' + encodePath(ep.path) + '?t=' + Math.floor(preview.t / 10) * 10}
+                    alt=""
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                    }}
+                  />
+                  <span>{fmtTime(preview.t)}</span>
+                </div>
+              )}
               <div className="seek-buffered" style={{ width: bufferedPct + '%' }} />
               <div className="seek-played" style={{ width: playedPct + '%' }}>
                 <div className="seek-knob" />
@@ -470,20 +533,62 @@ export default function Player({ path, library, onLibraryChange }) {
                       setMenu(null)
                       try {
                         await postJSON('/api/subtitle', { path: ep.path })
-                        alert(
-                          'Génération lancée — suivez la progression dans Téléchargements. ' +
-                            'Les sous-titres apparaîtront ici une fois prêts.',
-                        )
+                        toast('Génération lancée — progression dans Téléchargements')
                       } catch (err) {
-                        alert(err.message)
+                        toast(err.message, 'err')
                       }
                     }}
                   >
                     ✨ Générer par IA (Whisper)
                   </button>
+                  <div className="menu-sep" />
+                  <div className="sub-sizes">
+                    {SUB_SIZES.map(([key, letter, label]) => (
+                      <button
+                        key={key}
+                        className={'sub-size-btn ' + key + (subSize === key ? ' sel' : '')}
+                        title={'Sous-titres ' + label.toLowerCase()}
+                        onClick={() => {
+                          setSubSize(key)
+                          localStorage.setItem('anistream.subsize', key)
+                        }}
+                      >
+                        {letter}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
+
+            {audioTracks.length > 1 && (
+              <div className="menu-wrap">
+                <button
+                  className={'icon-btn' + (tcAudio >= 0 ? ' on' : '')}
+                  title="Piste audio"
+                  onClick={() => setMenu(menu === 'audio' ? null : 'audio')}
+                >
+                  🎧
+                </button>
+                {menu === 'audio' && (
+                  <div className="menu">
+                    {audioTracks.map((tr) => (
+                      <button
+                        key={tr.index}
+                        className={
+                          (tcAudio === tr.index || (tcAudio < 0 && tr.index === 0)) ? 'sel' : ''
+                        }
+                        onClick={() => selectAudioTrack(tr.index)}
+                      >
+                        Piste {tr.index + 1}
+                        {tr.lang ? ` · ${tr.lang}` : ''}
+                        {tr.title ? ` · ${tr.title}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="menu-wrap">
               <button

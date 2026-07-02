@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import yt_dlp  # noqa: E402  (importé depuis les sources du dépôt)
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
-from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, Response, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
@@ -380,6 +380,8 @@ def progress_hook(job_id):
             job = jobs.get(job_id)
             if job is None:
                 return
+            if job.get('cancel'):
+                raise yt_dlp.utils.DownloadCancelled('Annulé par l\'utilisateur')
             info = d.get('info_dict') or {}
             if info.get('title'):
                 job['title'] = info['title']
@@ -442,6 +444,11 @@ def archive_count(series_name):
 def run_download(job_id, req: DownloadRequest):
     with download_slots:
         with jobs_lock:
+            if jobs[job_id].get('cancel'):
+                jobs[job_id]['status'] = 'cancelled'
+                jobs[job_id]['finished_at'] = time.time()
+                db_record(jobs[job_id])
+                return
             jobs[job_id]['status'] = 'downloading'
             kind = jobs[job_id].get('kind', 'manual')
             db_record(jobs[job_id])
@@ -461,8 +468,11 @@ def run_download(job_id, req: DownloadRequest):
                     job['error'] = 'Certains éléments ont échoué (voir les logs du serveur)'
         except Exception as e:
             with jobs_lock:
-                jobs[job_id]['status'] = 'error'
-                jobs[job_id]['error'] = str(e)
+                if jobs[job_id].get('cancel'):
+                    jobs[job_id]['status'] = 'cancelled'
+                else:
+                    jobs[job_id]['status'] = 'error'
+                    jobs[job_id]['error'] = str(e)
         with jobs_lock:
             job = jobs[job_id]
             job['finished_at'] = time.time()
@@ -495,10 +505,26 @@ def list_downloads():
         return sorted(jobs.values(), key=lambda j: j['id'])
 
 
+@app.post('/api/downloads/{job_id}/cancel')
+def cancel_download(job_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, 'Téléchargement introuvable')
+        if job['status'] in ('done', 'error', 'cancelled'):
+            return job
+        job['cancel'] = True
+        if job['status'] == 'queued':
+            job['status'] = 'cancelled'
+            job['finished_at'] = time.time()
+            db_record(job)
+        return job
+
+
 @app.post('/api/downloads/clear')
 def clear_downloads():
     with jobs_lock:
-        for jid in [j['id'] for j in jobs.values() if j['status'] in ('done', 'error')]:
+        for jid in [j['id'] for j in jobs.values() if j['status'] in ('done', 'error', 'cancelled')]:
             del jobs[jid]
     return {'ok': True}
 
@@ -1057,7 +1083,7 @@ def transcode_profile():
 
 
 @app.get('/api/transcode/{rel_path:path}')
-def transcode(rel_path: str, t: float = 0):
+def transcode(rel_path: str, t: float = 0, audio: int = -1):
     file = safe_media_path(rel_path)
     profile = transcode_profile()
     if profile is None:
@@ -1065,7 +1091,10 @@ def transcode(rel_path: str, t: float = 0):
     cmd = [FFMPEG, '-v', 'error', '-nostdin']
     if t > 0:
         cmd += ['-ss', f'{t:.3f}']
-    cmd += ['-i', str(file), *profile['args'], 'pipe:1']
+    cmd += ['-i', str(file)]
+    if audio >= 0:
+        cmd += ['-map', '0:v:0?', '-map', f'0:a:{audio}?']
+    cmd += [*profile['args'], 'pipe:1']
     track('transcode_used', {'ext': file.suffix.lstrip('.'), 'offset': round(t)})
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
@@ -1105,7 +1134,48 @@ def mediainfo(rel_path: str):
                 duration = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
         except subprocess.SubprocessError:
             pass
-    return {'duration': duration, 'transcodable': transcode_profile() is not None}
+    audio_tracks = []
+    if ffprobe:
+        try:
+            out = subprocess.run(
+                [ffprobe, '-v', 'error', '-select_streams', 'a',
+                 '-show_entries', 'stream=index:stream_tags=language,title',
+                 '-of', 'json', str(file)],
+                capture_output=True, text=True, timeout=15).stdout
+            for i, stream in enumerate(json.loads(out).get('streams', [])):
+                tags = stream.get('tags') or {}
+                audio_tracks.append({
+                    'index': i,
+                    'lang': tags.get('language'),
+                    'title': tags.get('title'),
+                })
+        except (ValueError, subprocess.SubprocessError):
+            pass
+    return {
+        'duration': duration,
+        'transcodable': transcode_profile() is not None,
+        'audio_tracks': audio_tracks,
+    }
+
+
+@app.get('/api/preview/{rel_path:path}')
+def preview(rel_path: str, t: float = 0):
+    """Vignette d'aperçu à l'instant t (survol de la barre de lecture)."""
+    file = safe_media_path(rel_path)
+    if not FFMPEG:
+        raise HTTPException(404, 'ffmpeg indisponible')
+    try:
+        proc = subprocess.run(
+            [FFMPEG, '-v', 'error', '-nostdin', '-ss', f'{max(0.0, t):.1f}',
+             '-i', str(file), '-frames:v', '1', '-vf', 'scale=240:-1',
+             '-c:v', 'png', '-f', 'image2', 'pipe:1'],
+            capture_output=True, timeout=20)
+    except subprocess.SubprocessError:
+        raise HTTPException(404, 'aperçu indisponible')
+    if proc.returncode != 0 or not proc.stdout:
+        raise HTTPException(404, 'aperçu indisponible')
+    return Response(content=proc.stdout, media_type='image/png',
+                    headers={'Cache-Control': 'public, max-age=86400'})
 
 
 # ---------------------------------------------------------------------------
